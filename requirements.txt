@@ -1,0 +1,12 @@
+# ==================================================
+# CareerAI - Python Dependencies
+# ==================================================
+#
+# This file will contain all Python package dependencies
+# required to run the CareerAI project.
+#
+# Dependencies will be generated using:
+#
+#     pip freeze > requirements.txt
+#
+# ==================================================
