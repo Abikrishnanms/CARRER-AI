@@ -1,0 +1,47 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: careerai-postgres
+
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "${DB_PORT}:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: careerai-rabbitmq
+
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "15672:15672"
+
+    restart: unless-stopped
+
+
+  redis:
+    image: redis:7
+    container_name: careerai-redis
+
+    ports:
+      - "${REDIS_PORT}:6379"
+
+    restart: unless-stopped
+
+
+volumes:
+  postgres_data:
