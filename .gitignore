@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment
+venv/
+.env
+
+# VS Code
+.vscode/
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Cache
+.cache/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Python Testing
+.pytest_cache/
+
+# Distribution
+build/
+dist/
+*.egg-info/
+
+# Environment Variables
+.env
+.env.local
+
+# Jupyter
+.ipynb_checkpoints/
