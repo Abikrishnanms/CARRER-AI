@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+.env/
+.env
+venv.bak/
+# pipenv
+Pipfile.lock
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Docker
+docker-compose.override.yml
+
+# Log files
+*.log
+
+# Database files
+*.sqlite3
+
+# System files
+.DS_Store
+Thumbs.db
