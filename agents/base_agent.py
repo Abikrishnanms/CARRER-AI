@@ -26,7 +26,7 @@ class BaseAgent(ABC):
         """
         Each agent must implement its own run logic.
         """
-        ...
+        ... # python ellipsis
 
     def close(self):
         self.mongo.close()
