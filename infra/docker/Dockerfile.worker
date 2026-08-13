@@ -1,0 +1,36 @@
+# ── Shared Worker Dockerfile (cleaner, deduplicator, enrichment, verifier, embedder)
+FROM python:3.11-slim
+
+ARG SERVICE_NAME=cleaner
+
+RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --shell /bin/bash --create-home app
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+COPY services/${SERVICE_NAME}/ ./services/${SERVICE_NAME}/
+
+# Install base dependencies common to all workers
+RUN uv pip install --system --no-cache \
+    aiokafka \
+    motor \
+    pydantic \
+    httpx
+
+# Install service-specific extras
+RUN if [ "$SERVICE_NAME" = "enrichment" ] || [ "$SERVICE_NAME" = "verifier" ]; then \
+      uv pip install --system --no-cache langchain-core langchain-ollama langchain-openai langchain-anthropic; \
+    fi && \
+    if [ "$SERVICE_NAME" = "embedder" ]; then \
+      uv pip install --system --no-cache sentence-transformers qdrant-client; \
+    fi
+
+USER app
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app SERVICE_NAME=${SERVICE_NAME}
+
+CMD ["sh", "-c", "python -m services.${SERVICE_NAME}.main"]

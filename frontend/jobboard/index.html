@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TalentLens — AI-Powered Job Intelligence Platform</title>
+  <meta name="description" content="Discover verified, scam-free jobs with AI-powered matching. TalentLens aggregates thousands of jobs, detects fraud, and matches you to your perfect role." />
+  <meta property="og:title" content="TalentLens — AI-Powered Job Intelligence" />
+  <meta property="og:description" content="Find your next career move with confidence. Every job verified by AI." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ─── NAVBAR ─────────────────────────────────────────────────────────────── -->
+<nav class="navbar" id="navbar">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo" id="nav-logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" fill="url(#lg1)"/><path d="M10 16l4 4 8-8" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lg1" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse"><stop stop-color="#7C3AED"/><stop offset="1" stop-color="#2563EB"/></linearGradient></defs></svg>
+      </div>
+      <span class="logo-text">TalentLens</span>
+    </a>
+    <div class="nav-links">
+      <a href="#" class="nav-link" id="nav-jobs" onclick="showSection('jobs')">Jobs</a>
+      <a href="#" class="nav-link" id="nav-analytics" onclick="showSection('analytics')">Insights</a>
+    </div>
+    <div class="nav-actions">
+      <button class="btn btn-ghost" id="btn-login" onclick="openLoginModal()">Sign In</button>
+      <button class="btn btn-primary" id="btn-register" onclick="openRegisterModal()">Get Started</button>
+      <div class="user-menu hidden" id="user-menu">
+        <button class="avatar-btn" id="avatar-btn" onclick="toggleUserDropdown()">
+          <div class="avatar" id="user-avatar">U</div>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+        </button>
+        <div class="user-dropdown hidden" id="user-dropdown">
+          <div class="dropdown-header" id="dropdown-email"></div>
+          <a href="#" class="dropdown-item" onclick="showSection('saved')">Saved Searches</a>
+          <a href="#" class="dropdown-item" onclick="showSection('notifications')">Notifications <span class="badge" id="notif-badge">0</span></a>
+          <div class="dropdown-divider"></div>
+          <a href="#" class="dropdown-item danger" onclick="logout()">Sign Out</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ─── HERO ──────────────────────────────────────────────────────────────── -->
+<section class="hero" id="hero">
+  <div class="hero-bg">
+    <div class="hero-orb orb-1"></div>
+    <div class="hero-orb orb-2"></div>
+    <div class="hero-orb orb-3"></div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      <span>AI-Powered • Scam-Free • Verified</span>
+    </div>
+    <h1 class="hero-title">
+      Find Jobs That<br/>
+      <span class="gradient-text">Actually Exist</span>
+    </h1>
+    <p class="hero-subtitle">Every listing verified by AI. Zero scams, zero fake jobs. Just real opportunities matched to your skills.</p>
+
+    <div class="search-card" id="search-card">
+      <div class="search-row">
+        <div class="search-field">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="hero-search" placeholder="Job title, skills, or company..." class="search-input" autocomplete="off" />
+          <div class="autocomplete-dropdown hidden" id="autocomplete"></div>
+        </div>
+        <div class="search-field">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <input type="text" id="hero-location" placeholder="City, state, or remote..." class="search-input" />
+        </div>
+        <button class="btn btn-search" id="btn-search" onclick="performSearch()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Search Jobs
+        </button>
+      </div>
+      <div class="search-tags">
+        <span class="tag-label">Trending:</span>
+        <button class="tag-chip" onclick="quickSearch('Python Developer')">Python</button>
+        <button class="tag-chip" onclick="quickSearch('Machine Learning Engineer')">ML Engineer</button>
+        <button class="tag-chip" onclick="quickSearch('Full Stack Developer')">Full Stack</button>
+        <button class="tag-chip" onclick="quickSearch('Data Scientist')">Data Science</button>
+        <button class="tag-chip" onclick="quickSearch('DevOps Engineer')">DevOps</button>
+      </div>
+    </div>
+
+    <div class="hero-stats">
+      <div class="stat-item"><span class="stat-num" id="stat-jobs">—</span><span class="stat-label">Live Jobs</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-item"><span class="stat-num" id="stat-companies">—</span><span class="stat-label">Companies</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-item"><span class="stat-num" id="stat-verified">—</span><span class="stat-label">Verified</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-item"><span class="stat-num" id="stat-remote">—</span><span class="stat-label">Remote</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── JOBS SECTION ──────────────────────────────────────────────────────── -->
+<section class="section hidden" id="section-jobs">
+  <div class="container">
+    <div class="jobs-layout">
+
+      <!-- Sidebar Filters -->
+      <aside class="filters-panel" id="filters-panel">
+        <div class="filters-header">
+          <h3>Filters</h3>
+          <button class="btn-text" onclick="clearFilters()">Clear All</button>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Remote Type</label>
+          <div class="filter-options">
+            <button class="filter-btn active" data-filter="remote_type" data-value="" onclick="setFilter(this, 'remote_type', '')">All</button>
+            <button class="filter-btn" data-filter="remote_type" data-value="remote" onclick="setFilter(this, 'remote_type', 'remote')">🌍 Remote</button>
+            <button class="filter-btn" data-filter="remote_type" data-value="hybrid" onclick="setFilter(this, 'remote_type', 'hybrid')">🏠 Hybrid</button>
+            <button class="filter-btn" data-filter="remote_type" data-value="on_site" onclick="setFilter(this, 'remote_type', 'on_site')">🏢 On-site</button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Experience Level</label>
+          <div class="filter-options">
+            <button class="filter-btn active" data-filter="experience" data-value="" onclick="setFilter(this, 'experience', '')">All</button>
+            <button class="filter-btn" data-filter="experience" data-value="entry" onclick="setFilter(this, 'experience', 'entry')">Entry</button>
+            <button class="filter-btn" data-filter="experience" data-value="mid" onclick="setFilter(this, 'experience', 'mid')">Mid</button>
+            <button class="filter-btn" data-filter="experience" data-value="senior" onclick="setFilter(this, 'experience', 'senior')">Senior</button>
+            <button class="filter-btn" data-filter="experience" data-value="lead" onclick="setFilter(this, 'experience', 'lead')">Lead</button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Job Type</label>
+          <div class="filter-options">
+            <button class="filter-btn active" data-filter="job_type" data-value="" onclick="setFilter(this, 'job_type', '')">All</button>
+            <button class="filter-btn" data-filter="job_type" data-value="full_time" onclick="setFilter(this, 'job_type', 'full_time')">Full-time</button>
+            <button class="filter-btn" data-filter="job_type" data-value="contract" onclick="setFilter(this, 'job_type', 'contract')">Contract</button>
+            <button class="filter-btn" data-filter="job_type" data-value="internship" onclick="setFilter(this, 'job_type', 'internship')">Internship</button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Minimum Salary (₹ LPA)</label>
+          <div class="salary-slider-row">
+            <input type="range" id="salary-slider" min="0" max="50" step="5" value="0" oninput="onSalarySlider(this.value)" class="salary-slider" />
+            <span class="salary-value" id="salary-display">Any</span>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Trust Level</label>
+          <div class="filter-options">
+            <button class="filter-btn active" data-filter="scam_risk" data-value="medium" onclick="setFilter(this, 'scam_risk', 'medium')">✅ Verified Only</button>
+            <button class="filter-btn" data-filter="scam_risk" data-value="very_high" onclick="setFilter(this, 'scam_risk', 'very_high')">All Jobs</button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label">Posted Within</label>
+          <div class="filter-options">
+            <button class="filter-btn active" data-filter="days" data-value="" onclick="setFilter(this, 'days', '')">Any Time</button>
+            <button class="filter-btn" data-filter="days" data-value="1" onclick="setFilter(this, 'days', '1')">Today</button>
+            <button class="filter-btn" data-filter="days" data-value="7" onclick="setFilter(this, 'days', '7')">This Week</button>
+            <button class="filter-btn" data-filter="days" data-value="30" onclick="setFilter(this, 'days', '30')">This Month</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Jobs Main -->
+      <div class="jobs-main">
+        <div class="jobs-toolbar">
+          <div class="results-info">
+            <span id="results-count">Loading jobs...</span>
+          </div>
+          <div class="sort-row">
+            <span class="sort-label">Sort by:</span>
+            <select class="sort-select" id="sort-select" onchange="onSortChange()">
+              <option value="posted_at">Newest</option>
+              <option value="quality_score">Best Match</option>
+              <option value="salary_max">Highest Salary</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="jobs-grid" id="jobs-grid">
+          <!-- Skeleton loaders -->
+          <div class="job-skeleton"></div>
+          <div class="job-skeleton"></div>
+          <div class="job-skeleton"></div>
+          <div class="job-skeleton"></div>
+          <div class="job-skeleton"></div>
+          <div class="job-skeleton"></div>
+        </div>
+
+        <div class="empty-state hidden" id="empty-state">
+          <div class="empty-icon">🔍</div>
+          <h3>No jobs found</h3>
+          <p>Try adjusting your search terms or filters</p>
+          <button class="btn btn-primary" onclick="clearFilters(); performSearch()">Clear Filters</button>
+        </div>
+
+        <div class="pagination" id="pagination"></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── ANALYTICS SECTION ─────────────────────────────────────────────────── -->
+<section class="section hidden" id="section-analytics">
+  <div class="container">
+    <div class="section-header">
+      <h2>Market Intelligence</h2>
+      <p>Real-time insights from thousands of job postings</p>
+    </div>
+    <div class="analytics-grid" id="analytics-grid">
+      <div class="analytics-skeleton"></div>
+      <div class="analytics-skeleton"></div>
+      <div class="analytics-skeleton"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── SAVED SEARCHES ────────────────────────────────────────────────────── -->
+<section class="section hidden" id="section-saved">
+  <div class="container">
+    <div class="section-header">
+      <h2>Saved Searches</h2>
+      <p>Get instant alerts when new matching jobs are posted</p>
+    </div>
+    <div id="saved-searches-list"><div class="loading-spinner"></div></div>
+  </div>
+</section>
+
+<!-- ─── NOTIFICATIONS ─────────────────────────────────────────────────────── -->
+<section class="section hidden" id="section-notifications">
+  <div class="container">
+    <div class="section-header">
+      <h2>Notifications</h2>
+      <button class="btn btn-ghost" onclick="markAllRead()">Mark all read</button>
+    </div>
+    <div id="notifications-list"><div class="loading-spinner"></div></div>
+  </div>
+</section>
+
+<!-- ─── JOB DETAIL DRAWER ─────────────────────────────────────────────────── -->
+<div class="drawer-overlay hidden" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="job-drawer hidden" id="job-drawer">
+  <div class="drawer-inner" id="drawer-content">
+    <div class="loading-spinner"></div>
+  </div>
+</div>
+
+<!-- ─── AUTH MODALS ───────────────────────────────────────────────────────── -->
+<div class="modal-overlay hidden" id="modal-overlay"></div>
+
+<div class="modal hidden" id="modal-login">
+  <button class="modal-close" onclick="closeModal()">×</button>
+  <div class="modal-header">
+    <div class="modal-logo"><svg viewBox="0 0 32 32" fill="none" width="36"><circle cx="16" cy="16" r="14" fill="url(#lm)"/><path d="M10 16l4 4 8-8" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lm" x1="2" y1="2" x2="30" y2="30"><stop stop-color="#7C3AED"/><stop offset="1" stop-color="#2563EB"/></linearGradient></defs></svg></div>
+    <h2>Welcome back</h2>
+    <p>Sign in to access your saved searches and alerts</p>
+  </div>
+  <form onsubmit="submitLogin(event)" class="modal-form">
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com" required class="form-input" />
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" required class="form-input" />
+    </div>
+    <div class="form-error hidden" id="login-error"></div>
+    <button type="submit" class="btn btn-primary btn-full" id="login-submit">Sign In</button>
+    <p class="modal-switch">Don't have an account? <a href="#" onclick="switchToRegister()">Create one</a></p>
+  </form>
+</div>
+
+<div class="modal hidden" id="modal-register">
+  <button class="modal-close" onclick="closeModal()">×</button>
+  <div class="modal-header">
+    <div class="modal-logo"><svg viewBox="0 0 32 32" fill="none" width="36"><circle cx="16" cy="16" r="14" fill="url(#lr)"/><path d="M10 16l4 4 8-8" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lr" x1="2" y1="2" x2="30" y2="30"><stop stop-color="#7C3AED"/><stop offset="1" stop-color="#2563EB"/></linearGradient></defs></svg></div>
+    <h2>Create your account</h2>
+    <p>Get job alerts and save your searches</p>
+  </div>
+  <form onsubmit="submitRegister(event)" class="modal-form">
+    <div class="form-group">
+      <label>Full Name</label>
+      <input type="text" id="reg-name" placeholder="Your name" required class="form-input" />
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="reg-email" placeholder="you@example.com" required class="form-input" />
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="reg-password" placeholder="Min. 8 characters" required minlength="8" class="form-input" />
+    </div>
+    <div class="form-error hidden" id="reg-error"></div>
+    <button type="submit" class="btn btn-primary btn-full" id="reg-submit">Create Account</button>
+    <p class="modal-switch">Already have an account? <a href="#" onclick="switchToLogin()">Sign in</a></p>
+  </form>
+</div>
+
+<!-- Save Search Modal -->
+<div class="modal hidden" id="modal-save-search">
+  <button class="modal-close" onclick="closeModal()">×</button>
+  <div class="modal-header">
+    <h2>Save This Search</h2>
+    <p>Get alerts when new matching jobs are posted</p>
+  </div>
+  <form onsubmit="submitSaveSearch(event)" class="modal-form">
+    <div class="form-group">
+      <label>Search Name</label>
+      <input type="text" id="ss-name" placeholder="e.g. Python Dev in Bangalore" required class="form-input" />
+    </div>
+    <div class="form-check">
+      <input type="checkbox" id="ss-alerts" checked />
+      <label for="ss-alerts">Email me new matches</label>
+    </div>
+    <button type="submit" class="btn btn-primary btn-full">Save Search</button>
+  </form>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

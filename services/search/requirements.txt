@@ -1,0 +1,11 @@
+# Search Service dependencies
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+motor==3.6.0
+pydantic==2.10.6
+python-dotenv==1.0.1
+qdrant-client==1.13.3
+elasticsearch[async]==8.17.1
+redis[asyncio]==5.2.1
+sentence-transformers==3.4.1
+numpy==2.2.3

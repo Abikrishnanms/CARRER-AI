@@ -1,0 +1,54 @@
+# ── Gateway Service Dockerfile ────────────────────────────────────────────────
+FROM python:3.11-slim AS base
+
+# Security: run as non-root
+RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --shell /bin/bash --create-home app
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast Python package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# ── Builder stage ─────────────────────────────────────────────────────────────
+FROM base AS builder
+
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+COPY services/gateway/ ./services/gateway/
+
+RUN uv pip install --system --no-cache \
+    fastapi \
+    uvicorn[standard] \
+    motor \
+    pydantic \
+    pyjwt \
+    aiokafka \
+    redis \
+    prometheus-fastapi-instrumentator \
+    prometheus-client
+
+# ── Runtime stage ──────────────────────────────────────────────────────────────
+FROM base AS runtime
+
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /app /app
+
+USER app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "services.gateway.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "2", "--log-level", "info"]

@@ -1,0 +1,267 @@
+version: "3.8"
+
+# ── Production Docker Compose ─────────────────────────────────────────────────
+# Usage: docker compose -f docker-compose.prod.yml up -d
+# Differences from dev: resource limits, restart policies, external secrets
+
+x-worker-defaults: &worker-defaults
+  restart: unless-stopped
+  networks: [platform]
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "3"
+  environment:
+    KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    MONGO_URI: mongodb://admin:${MONGO_PASSWORD}@mongodb:27017/jobplatform?authSource=admin
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    QDRANT_HOST: qdrant
+    OLLAMA_BASE_URL: http://ollama:11434
+    APP_ENV: production
+    LOG_LEVEL: INFO
+
+services:
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  gateway:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.gateway
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *worker-defaults.environment
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 512M }
+        reservations: { cpus: '0.25', memory: 128M }
+      replicas: 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      mongodb: { condition: service_healthy }
+      redpanda: { condition: service_healthy }
+
+  # ── Collector ────────────────────────────────────────────────────────────────
+  collector:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.collector
+    environment:
+      <<: *worker-defaults.environment
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_API_KEY: ${ADZUNA_API_KEY:-}
+      COLLECTION_INTERVAL_HOURS: "6"
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 256M }
+
+  # ── Pipeline Workers ─────────────────────────────────────────────────────────
+  cleaner:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: cleaner }
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 256M }
+
+  deduplicator:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: deduplicator }
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 256M }
+
+  enrichment:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: enrichment }
+    environment:
+      <<: *worker-defaults.environment
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 512M }
+
+  verifier:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: verifier }
+    environment:
+      <<: *worker-defaults.environment
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 512M }
+
+  embedder:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: embedder }
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1G }
+
+  notifier:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: notifier }
+    environment:
+      <<: *worker-defaults.environment
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    deploy:
+      resources:
+        limits: { cpus: '0.25', memory: 128M }
+
+  orchestrator:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: orchestrator }
+    deploy:
+      resources:
+        limits: { cpus: '0.25', memory: 128M }
+
+  analytics:
+    <<: *worker-defaults
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+      args: { SERVICE_NAME: analytics }
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 256M }
+
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    networks: [platform]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data_prod:/data/db
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 2G }
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  redpanda:
+    image: redpandadata/redpanda:latest
+    restart: unless-stopped
+    networks: [platform]
+    command:
+      - redpanda start
+      - --smp 2
+      - --memory 1G
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    volumes:
+      - redpanda_data_prod:/var/lib/redpanda/data
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 1.5G }
+    healthcheck:
+      test: ["CMD-SHELL", "(curl -sf http://localhost:9644/v1/status >/dev/null 2>&1) || (rpk topic list >/dev/null 2>&1) || (rpk cluster health --watch=false 2>&1 | grep -q 'Healthy: true')"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: jip-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes ${REDIS_PASSWORD:+--requirepass $$REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a \"$REDIS_PASSWORD\"} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    networks: [platform]
+    volumes:
+      - qdrant_data_prod:/qdrant/storage
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1G }
+
+  # ── Observability ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    networks: [platform]
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    networks: [platform]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on: [prometheus]
+
+networks:
+  platform:
+    driver: bridge
+
+volumes:
+  mongo_data_prod:
+  redpanda_data_prod:
+  redis_data_prod:
+  qdrant_data_prod:
+  prometheus_data:
+  grafana_data:

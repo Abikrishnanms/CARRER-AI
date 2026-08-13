@@ -1,0 +1,11 @@
+# Auth Service dependencies
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+motor==3.6.0
+pydantic==2.10.6
+python-dotenv==1.0.1
+PyJWT==2.10.1
+passlib[bcrypt]==1.7.4
+httpx==0.28.1
+python-multipart==0.0.20
+email-validator==2.2.0

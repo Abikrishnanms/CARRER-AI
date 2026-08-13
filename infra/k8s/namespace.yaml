@@ -1,0 +1,10 @@
+---
+# TalentLens Job Intelligence Platform — Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: talentlens
+  labels:
+    app.kubernetes.io/name: talentlens
+    app.kubernetes.io/part-of: job-intelligence-platform
+    environment: production

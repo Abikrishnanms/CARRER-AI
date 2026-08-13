@@ -1,0 +1,21 @@
+---
+# TalentLens — ConfigMap for shared environment variables
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: talentlens
+  labels:
+    app.kubernetes.io/part-of: job-intelligence-platform
+data:
+  APP_ENV: "production"
+  MONGO_DB: "jobplatform"
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda:29092"
+  QDRANT_HOST: "qdrant"
+  ELASTICSEARCH_URL: "http://elasticsearch:9200"
+  MINIO_ENDPOINT: "minio:9000"
+  CORS_ORIGINS: "https://jobs.talentlens.io,https://admin.talentlens.io"
+  EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+  SALARY_MODEL_PATH: "/app/ml/salary_estimator/model.pkl"
+  SCAM_MODEL_PATH: "/app/ml/scam_detector/model.pkl"
+  LOG_LEVEL: "INFO"

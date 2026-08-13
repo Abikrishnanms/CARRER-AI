@@ -1,0 +1,126 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.Python
+pip-wheel-metadata/
+share/python-wheels/
+.installed.cfg
+
+# UV
+.uv/
+uv.lock
+
+# Environment
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Node / Frontend
+node_modules/
+frontend/*/node_modules/
+frontend/*/dist/
+frontend/*/.vite/
+frontend/*/build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+docker-compose.override.yml
+
+# Database
+*.sqlite
+*.db
+*.sql.gz
+
+# ML Models (large files — store in DVC/MinIO)
+ml/models/*.pkl
+ml/models/*.pt
+ml/models/*.bin
+ml/models/*.onnx
+ml/models/*.h5
+!ml/models/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfvars
+
+# Kubernetes secrets
+infra/k8s/secrets/
+
+# Certificates
+*.pem
+*.key
+*.crt
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# MinIO data (local)
+.minio-data/
+
+# Temporary
+tmp/
+temp/
+.tmp/
+
+# Alembic versions (keep the folder, not the generated files)
+# services/*/migrations/versions/*.py  # Comment out to track migrations
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Archive
+*.zip
+*.tar.gz
+*.rar
