@@ -607,3 +607,13 @@ You are now running an **enterprise-grade, microservices-based AI job intelligen
 **Owner:** TalentLens Platform Team
 **Last Updated:** 2026-08-13
 **Next Review:** After applying all diffs and running first clean deployment
+
+
+
+Option 1: Clear Jobs & Re-Seed Fresh Data (Recommended)
+If you want to wipe all sample/scraped jobs and replace them with fresh data:
+```powershell
+$env:PYTHONPATH="."; 
+$env:PYTHONIOENCODING="utf-8"; 
+python scripts/seed_data.py --count 100 --clear
+```

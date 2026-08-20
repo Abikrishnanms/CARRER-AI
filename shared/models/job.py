@@ -161,6 +161,9 @@ class ScamAnalysis(BaseModel):
     risk_level: ScamRisk = ScamRisk.VERY_LOW
     triggered_rules: list[str] = Field(default_factory=list)
     risk_factors: dict[str, float] = Field(default_factory=dict)
+    trust_reasons: list[str] = Field(default_factory=list)
+    warning_signals: list[str] = Field(default_factory=list)
+    is_url_reachable: bool = True
     model_version: str = "unknown"
     is_reviewed: bool = False          # Human review flag
     reviewer_verdict: bool | None = None
@@ -364,6 +367,9 @@ class JobSearchResult(BaseModel):
     trust_score: float | None = None
     scam_risk: ScamRisk = ScamRisk.VERY_LOW
     is_verified: bool = False
+    trust_reasons: list[str] = Field(default_factory=list)
+    warning_signals: list[str] = Field(default_factory=list)
+    is_url_reachable: bool = True
 
     # Search relevance
     match_score: float = 0.0

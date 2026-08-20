@@ -16,6 +16,7 @@ COPY services/collector/ ./services/collector/
 RUN uv pip install --system --no-cache \
     httpx \
     aiokafka \
+    lz4 \
     motor \
     feedparser \
     beautifulsoup4 \

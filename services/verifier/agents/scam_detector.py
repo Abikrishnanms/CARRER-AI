@@ -86,6 +86,18 @@ SCAM_PATTERNS = {
         "weight": 0.4,
         "description": "Vague or missing company name",
     },
+    # Telegram contact scam
+    "telegram_scam": {
+        "pattern": r"(t\.me|telegram|tg group|contact on telegram)",
+        "weight": 0.8,
+        "description": "Telegram group or channel contact requirement",
+    },
+    # Crypto/NFT task scam
+    "crypto_task_scam": {
+        "pattern": r"(crypto|usdt|binance|nft|wallet|deposit usdt|recharge account)",
+        "weight": 0.85,
+        "description": "Cryptocurrency or NFT task requirement",
+    },
     # Cash payment
     "cash_payment": {
         "pattern": r"(paid|payment|salary).{0,30}(cash|hand to hand|in person|on joining day)",
@@ -110,6 +122,8 @@ class ScamAnalysisResult:
     risk_level: str = "very_low"
     triggered_rules: list[str] = field(default_factory=list)
     risk_factors: dict[str, float] = field(default_factory=dict)
+    trust_reasons: list[str] = field(default_factory=list)
+    warning_signals: list[str] = field(default_factory=list)
     model_used: str = "rule_based"
     confidence: float = 1.0
     explanation: str = ""
@@ -169,7 +183,7 @@ class ScamDetectionAgent:
         full_text = f"{title} {description} {company_name} {apply_url or ''}".lower()
 
         # ── Layer 1: Rule-based analysis ──
-        rule_score, triggered_rules, risk_factors = self._apply_rules(
+        rule_score, triggered_rules, risk_factors, trust_reasons, warning_signals = self._apply_rules(
             full_text=full_text,
             title=title,
             description=description,
@@ -177,10 +191,13 @@ class ScamDetectionAgent:
             salary_min=salary_min,
             salary_max=salary_max,
             contact_email=contact_email,
+            apply_url=apply_url,
         )
 
         result.triggered_rules = triggered_rules
         result.risk_factors = risk_factors
+        result.trust_reasons = trust_reasons
+        result.warning_signals = warning_signals
 
         # ── Layer 2: ML model (if available) ──
         if self._ml_available:
@@ -192,7 +209,6 @@ class ScamDetectionAgent:
                     salary_min=salary_min,
                     salary_max=salary_max,
                 )
-                # Weighted ensemble: 60% ML, 40% rules
                 combined_score = 0.6 * ml_score + 0.4 * rule_score
                 result.model_used = "xgboost_ensemble"
             except Exception as e:
@@ -218,10 +234,13 @@ class ScamDetectionAgent:
         salary_min: float | None,
         salary_max: float | None,
         contact_email: str | None,
-    ) -> tuple[float, list[str], dict[str, float]]:
-        """Apply all scam detection rules."""
+        apply_url: str | None,
+    ) -> tuple[float, list[str], dict[str, float], list[str], list[str]]:
+        """Apply all scam detection rules and build positive trust vs warning reasons."""
         triggered = []
         risk_factors = {}
+        trust_reasons = []
+        warning_signals = []
         total_weight = 0.0
         max_single_weight = 0.0
 
@@ -234,64 +253,51 @@ class ScamDetectionAgent:
                 if re.search(pattern, full_text, re.IGNORECASE | re.MULTILINE):
                     triggered.append(rule_name)
                     risk_factors[rule_name] = weight
+                    warning_signals.append(rule_config["description"])
                     total_weight += weight
                     max_single_weight = max(max_single_weight, weight)
             except re.error as e:
                 logger.debug(f"Regex error in rule {rule_name}: {e}")
 
-        # ── Structural checks ──
+        # ── Positive Trust Signals ──
+        if company_name and company_name.lower() not in {"company", "organization", "mnc", "unknown"}:
+            trust_reasons.append("Identified company name")
+        if apply_url and ("http://" in apply_url or "https://" in apply_url):
+            trust_reasons.append("Valid applicant portal URL")
+        if description and len(description.strip()) > 150:
+            trust_reasons.append("Detailed job description provided")
+        if salary_min and salary_max and salary_max <= salary_min * 4:
+            trust_reasons.append("Realistic salary compensation range")
+        if "fee_required" not in triggered and "data_entry_scam" not in triggered:
+            trust_reasons.append("No upfront payment or fee requested")
 
-        # Very short description (< 50 chars) is suspicious
+        # ── Structural checks ──
         if description and len(description.strip()) < 50:
             triggered.append("very_short_description")
             risk_factors["very_short_description"] = 0.4
+            warning_signals.append("Extremely brief job description")
             total_weight += 0.4
 
-        # Company name too generic
         generic_names = {"company", "organization", "client", "mnc", "startup"}
         if company_name.lower().strip() in generic_names:
             triggered.append("generic_company_name")
             risk_factors["generic_company_name"] = 0.5
+            warning_signals.append("Generic or undisclosed company name")
             total_weight += 0.5
 
-        # No apply URL (contact via email only)
-        if not description and not title:
-            triggered.append("empty_job_posting")
-            risk_factors["empty_job_posting"] = 0.9
-            total_weight += 0.9
+        if contact_email and re.search(r"@(gmail|yahoo|hotmail|outlook|rediffmail)\.", contact_email, re.I):
+            triggered.append("personal_email_contact")
+            risk_factors["personal_email_contact"] = 0.4
+            warning_signals.append("Personal email address used for contact")
+            total_weight += 0.4
 
-        # Salary reasonableness check
-        if salary_min and salary_max:
-            if salary_max > salary_min * 5:
-                triggered.append("unrealistic_salary_range")
-                risk_factors["unrealistic_salary_range"] = 0.5
-                total_weight += 0.5
-
-        # Personal email for applications
-        if contact_email:
-            if re.search(r"@(gmail|yahoo|hotmail|outlook|rediffmail)\.", contact_email, re.I):
-                triggered.append("personal_email_contact")
-                risk_factors["personal_email_contact"] = 0.4
-                total_weight += 0.4
-
-        # Excessive CAPS LOCK usage
-        if description:
-            caps_ratio = sum(1 for c in description if c.isupper()) / max(len(description), 1)
-            if caps_ratio > 0.4 and len(description) > 100:
-                triggered.append("excessive_caps")
-                risk_factors["excessive_caps"] = 0.3
-                total_weight += 0.3
-
-        # Calculate final score
-        # Use dampening to prevent single rules from dominating
         if not triggered:
             score = 0.0
         else:
-            # Normalize by number of rules, but cap at critical individual rules
-            normalized = total_weight / (len(SCAM_PATTERNS) + 5)  # +5 for structural checks
+            normalized = total_weight / (len(SCAM_PATTERNS) + 5)
             score = min(0.95, max(normalized, max_single_weight * 0.9))
 
-        return score, triggered, risk_factors
+        return score, triggered, risk_factors, trust_reasons, warning_signals
 
     def _ml_predict(
         self,

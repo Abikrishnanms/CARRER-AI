@@ -28,6 +28,7 @@ RUN uv pip install --system --no-cache \
     pydantic \
     pyjwt \
     aiokafka \
+    lz4 \
     redis \
     prometheus-fastapi-instrumentator \
     prometheus-client

@@ -14,6 +14,26 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# ─── One-time availability cache ─────────────────────────────
+# Populated lazily the first time a provider is probed.
+# Values: True = available, False = unavailable (import error or no API key)
+_provider_available: dict[str, bool | None] = {
+    "ollama": None,
+    "openai": None,
+    "anthropic": None,
+}
+
+# Tracks which missing-package warnings have already been emitted so
+# they are only logged once per process (not once per worker thread).
+_warned_once: set[str] = set()
+
+
+def _warn_once(key: str, msg: str) -> None:
+    """Emit a WARNING log message at most once per unique key."""
+    if key not in _warned_once:
+        _warned_once.add(key)
+        logger.warning(msg)
+
 
 class LLMProvider(str, Enum):
     OLLAMA = "ollama"
@@ -31,17 +51,17 @@ class TaskComplexity(str, Enum):
 
 # Task type → recommended provider + model
 TASK_ROUTING_TABLE: dict[str, tuple[LLMProvider, str]] = {
-    "skill_extraction": (LLMProvider.OLLAMA, "llama3.2"),
-    "salary_estimation": (LLMProvider.OLLAMA, "llama3.2"),
-    "job_cleaning": (LLMProvider.OLLAMA, "llama3.2"),
-    "duplicate_check": (LLMProvider.OLLAMA, "llama3.2"),
-    "entity_extraction": (LLMProvider.OPENAI, "gpt-4o-mini"),
-    "scam_detection": (LLMProvider.ANTHROPIC, "claude-3-5-haiku-20241022"),
-    "authenticity_check": (LLMProvider.OPENAI, "gpt-4o-mini"),
-    "recommendation": (LLMProvider.OLLAMA, "llama3.2"),
-    "summarization": (LLMProvider.OPENAI, "gpt-4o-mini"),
-    "complex_reasoning": (LLMProvider.OPENAI, "gpt-4o"),
-    "default": (LLMProvider.OLLAMA, "llama3.2"),
+    "skill_extraction":   (LLMProvider.OLLAMA,    "llama3.2"),
+    "salary_estimation":  (LLMProvider.OLLAMA,    "llama3.2"),
+    "job_cleaning":       (LLMProvider.OLLAMA,    "llama3.2"),
+    "duplicate_check":    (LLMProvider.OLLAMA,    "llama3.2"),
+    "entity_extraction":  (LLMProvider.OPENAI,    "gpt-4o-mini"),
+    "scam_detection":     (LLMProvider.ANTHROPIC, "claude-3-5-haiku-20241022"),
+    "authenticity_check": (LLMProvider.OPENAI,    "gpt-4o-mini"),
+    "recommendation":     (LLMProvider.OLLAMA,    "llama3.2"),
+    "summarization":      (LLMProvider.OPENAI,    "gpt-4o-mini"),
+    "complex_reasoning":  (LLMProvider.OPENAI,    "gpt-4o"),
+    "default":            (LLMProvider.OLLAMA,    "llama3.2"),
 }
 
 
@@ -52,6 +72,7 @@ class LLMRouter:
     - Cost budgeting
     - Automatic fallback chain
     - Token usage tracking
+    - One-time availability probing (no repeated import warnings)
     """
 
     def __init__(self) -> None:
@@ -59,41 +80,123 @@ class LLMRouter:
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
         self._clients: dict[str, Any] = {}
         self._token_usage: dict[str, int] = {}
+        # Probe availability once at construction so warnings fire only once.
+        self._probe_all_providers()
+
+    # ── One-time availability probes ─────────────────────────────────
+
+    def _probe_all_providers(self) -> None:
+        """
+        Check which optional LLM packages are installed and log a single
+        diagnostic INFO (available) or WARNING (missing/no key) message.
+        This replaces per-call import checks that flooded logs with 50+ repeats.
+        """
+        self._probe_ollama()
+        self._probe_openai()
+        self._probe_anthropic()
+
+    def _probe_ollama(self) -> None:
+        global _provider_available
+        if _provider_available["ollama"] is not None:
+            return
+        try:
+            import langchain_ollama  # noqa: F401
+            _provider_available["ollama"] = True
+            logger.debug("LLM: langchain-ollama is available")
+        except ImportError:
+            _provider_available["ollama"] = False
+            _warn_once(
+                "missing_ollama",
+                "LLM provider 'ollama' is unavailable: langchain-ollama is not installed. "
+                "Install it with: pip install langchain-ollama",
+            )
+
+    def _probe_openai(self) -> None:
+        global _provider_available
+        if _provider_available["openai"] is not None:
+            return
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key or api_key.startswith("sk-your"):
+            _provider_available["openai"] = False
+            logger.debug("LLM: OpenAI skipped — OPENAI_API_KEY not configured")
+            return
+        try:
+            import langchain_openai  # noqa: F401
+            _provider_available["openai"] = True
+            logger.debug("LLM: langchain-openai is available")
+        except ImportError:
+            _provider_available["openai"] = False
+            _warn_once(
+                "missing_openai",
+                "LLM provider 'openai' is unavailable: langchain-openai is not installed. "
+                "Install it with: pip install langchain-openai",
+            )
+
+    def _probe_anthropic(self) -> None:
+        global _provider_available
+        if _provider_available["anthropic"] is not None:
+            return
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key or api_key.startswith("sk-ant-your"):
+            _provider_available["anthropic"] = False
+            logger.debug("LLM: Anthropic skipped — ANTHROPIC_API_KEY not configured")
+            return
+        try:
+            import langchain_anthropic  # noqa: F401
+            _provider_available["anthropic"] = True
+            logger.debug("LLM: langchain-anthropic is available")
+        except ImportError:
+            _provider_available["anthropic"] = False
+            _warn_once(
+                "missing_anthropic",
+                "LLM provider 'anthropic' is unavailable: langchain-anthropic is not installed. "
+                "Install it with: pip install langchain-anthropic",
+            )
+
+    # ── Client factories (only called when provider is known available) ──
 
     def _get_ollama_client(self) -> Any:
-        """Get or create Ollama client."""
+        """Return a ChatOllama client. Assumes availability was already confirmed."""
+        if not _provider_available.get("ollama"):
+            return None
         try:
             from langchain_ollama import ChatOllama
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.2")
             return ChatOllama(base_url=base_url, model=model, temperature=self.temperature)
-        except ImportError:
-            logger.warning("langchain-ollama not installed")
+        except Exception as exc:
+            logger.debug("LLM: Could not create Ollama client: %s", exc)
             return None
 
     def _get_openai_client(self, model: str = "gpt-4o-mini") -> Any:
-        """Get or create OpenAI client."""
+        """Return a ChatOpenAI client. Assumes availability was already confirmed."""
+        if not _provider_available.get("openai"):
+            return None
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key or api_key.startswith("sk-your"):
             return None
         try:
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(api_key=api_key, model=model, temperature=self.temperature)
-        except ImportError:
-            logger.warning("langchain-openai not installed")
+        except Exception as exc:
+            logger.debug("LLM: Could not create OpenAI client: %s", exc)
             return None
 
     def _get_anthropic_client(self, model: str = "claude-3-5-haiku-20241022") -> Any:
-        """Get or create Anthropic client."""
+        """Return a ChatAnthropic client. Assumes availability was already confirmed."""
+        if not _provider_available.get("anthropic"):
+            return None
         api_key = os.getenv("ANTHROPIC_API_KEY", "")
         if not api_key or api_key.startswith("sk-ant-your"):
             return None
         try:
             from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(api_key=api_key, model=model, temperature=self.temperature)
-        except ImportError:
-            logger.warning("langchain-anthropic not installed")
+        except Exception as exc:
+            logger.debug("LLM: Could not create Anthropic client: %s", exc)
             return None
+
+    # ── Public API ────────────────────────────────────────────────────
 
     def get_client_for_task(self, task_type: str = "default") -> tuple[Any, str]:
         """
@@ -120,11 +223,17 @@ class LLMRouter:
 
             if client is not None:
                 if fp != provider:
-                    logger.warning(f"Falling back from {provider.value} to {fp.value} for task {task_type}")
+                    logger.warning(
+                        "LLM: Falling back from %s to %s for task %s",
+                        provider.value, fp.value, task_type,
+                    )
                 return client, fp.value
 
-        raise RuntimeError(f"No LLM provider available for task {task_type}. "
-                          "Please configure OLLAMA_BASE_URL or an API key.")
+        raise RuntimeError(
+            f"No LLM provider available for task '{task_type}'. "
+            "Please install langchain-ollama (and ensure Ollama is running) "
+            "or set a valid OPENAI_API_KEY / ANTHROPIC_API_KEY."
+        )
 
     async def invoke(
         self,
@@ -162,11 +271,11 @@ class LLMRouter:
             }
 
         except Exception as e:
-            logger.exception(f"LLM invocation failed for task {task_type}: {e}")
+            logger.exception("LLM invocation failed for task %s: %s", task_type, e)
             raise
 
 
-# Singleton router
+# ── Singleton router ──────────────────────────────────────────────
 _router: LLMRouter | None = None
 
 

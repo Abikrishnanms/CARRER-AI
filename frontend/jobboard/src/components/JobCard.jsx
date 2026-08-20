@@ -75,8 +75,12 @@ export default function JobCard({ job, onClick }) {
 
   const handleApply = (e) => {
     e.stopPropagation()
-    if (job.apply_url && job.apply_url !== '#') {
-      window.open(job.apply_url, '_blank', 'noopener,noreferrer')
+    let url = job.apply_url || job.source_url
+    if (url && url !== '#') {
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url
+      }
+      window.open(url, '_blank', 'noopener,noreferrer')
     }
   }
 

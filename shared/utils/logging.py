@@ -51,6 +51,13 @@ def setup_logging(
     # Remove existing handlers
     root.handlers.clear()
 
+    # Force UTF-8 on Windows to prevent emoji crashes
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     handler = logging.StreamHandler(sys.stdout)
     if use_json:
         handler.setFormatter(_JsonFormatter())

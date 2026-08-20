@@ -32,7 +32,8 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     full_name: str = Field(min_length=2, max_length=100)
-    role: str = "user"  # user | admin
+    # Note: 'role' is intentionally NOT accepted here — all registrations are 'user'.
+    # Use POST /admin/users/{id}/role or POST /auth/create-first-admin to grant admin.
 
 
 class LoginRequest(BaseModel):
@@ -84,7 +85,7 @@ async def register(
         "email": body.email,
         "full_name": body.full_name,
         "password_hash": _hash_password(body.password),
-        "role": body.role if body.role in ("user", "admin") else "user",
+        "role": "user",  # Always force 'user' — admins must be promoted via admin API
         "is_active": True,
         "email_verified": False,
         "created_at": datetime.utcnow(),
@@ -250,3 +251,86 @@ async def change_password(
         {"$set": {"password_hash": _hash_password(new_password), "updated_at": datetime.utcnow()}},
     )
     return {"message": "Password changed successfully"}
+
+
+# ─── Bootstrap: create first admin ────────────────────────────────────────────
+
+class BootstrapAdminRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    full_name: str = Field(min_length=2, max_length=100)
+    # A simple shared secret to prevent random people from using this endpoint.
+    # Set BOOTSTRAP_SECRET in your .env; leave blank to disable the endpoint.
+    bootstrap_secret: str
+
+
+@router.post("/create-first-admin", status_code=status.HTTP_201_CREATED, tags=["Authentication"])
+async def create_first_admin(
+    body: BootstrapAdminRequest,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    One-time bootstrap: create the very first admin account.
+
+    - Fails with 409 if ANY admin already exists in the database.
+    - Requires the BOOTSTRAP_SECRET env var to match the request field.
+    - Disable this endpoint in production by unsetting BOOTSTRAP_SECRET.
+    """
+    secret = os.getenv("BOOTSTRAP_SECRET", "")
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bootstrap endpoint is disabled (BOOTSTRAP_SECRET not set)",
+        )
+    if body.bootstrap_secret != secret:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid bootstrap secret")
+
+    existing_admin = await db.users.find_one({"role": "admin"})
+    if existing_admin:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An admin account already exists. Use PATCH /admin/users/{id}/role to promote users.",
+        )
+
+    existing = await db.users.find_one({"email": body.email})
+    if existing:
+        # If the user exists but isn't admin yet, just promote them
+        await db.users.update_one(
+            {"email": body.email},
+            {"$set": {"role": "admin", "updated_at": datetime.utcnow()}},
+        )
+        user_id = str(existing["_id"])
+        logger.info(f"Bootstrap: promoted existing user {body.email} to admin")
+    else:
+        user_id = str(uuid.uuid4())
+        await db.users.insert_one({
+            "_id": user_id,
+            "email": body.email,
+            "full_name": body.full_name,
+            "password_hash": _hash_password(body.password),
+            "role": "admin",
+            "is_active": True,
+            "email_verified": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "last_login": None,
+            "notification_preferences": {"email": True, "in_app": True, "telegram": False},
+            "profile": {
+                "headline": None, "skills": [], "experience_years": None,
+                "preferred_locations": [], "preferred_remote_type": None, "preferred_salary_min": None,
+            },
+        })
+        logger.info(f"Bootstrap: created first admin account {body.email}")
+
+    expire_minutes = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+    access_token = create_access_token(user_id, body.email, "admin")
+    refresh_token = create_refresh_token(user_id)
+
+    return {
+        "message": "Admin account created successfully",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": expire_minutes * 60,
+    }
+

@@ -187,6 +187,36 @@ async def get_pipeline_details(
     }
 
 
+# ─── Pipeline Repair ─────────────────────────────────────────────────────────
+
+@router.post("/repair-published")
+async def repair_published_jobs(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _: Any = Depends(require_admin),
+) -> dict[str, Any]:
+    """
+    One-shot repair: promote all jobs stuck in 'cleaned', 'enriched', or
+    'verified' status to 'published'.  Use this after deploying the verifier
+    bug-fix to surface jobs that were processed before the patch.
+    """
+    stuck_statuses = ["cleaned", "enriched", "verified"]
+    result = await db.jobs.update_many(
+        {"status": {"$in": stuck_statuses}},
+        {"$set": {"status": "published", "updated_at": datetime.utcnow()}},
+    )
+    logger.info(
+        "Admin repair-published: promoted %d jobs (%s → published)",
+        result.modified_count,
+        stuck_statuses,
+    )
+    return {
+        "promoted": result.modified_count,
+        "from_statuses": stuck_statuses,
+        "to_status": "published",
+        "repaired_at": datetime.utcnow().isoformat(),
+    }
+
+
 # ─── Job Management ───────────────────────────────────────────────────────────
 
 @router.patch("/jobs/{job_id}/status")

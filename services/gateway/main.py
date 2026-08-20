@@ -1,6 +1,6 @@
 """
 FastAPI API Gateway — The single entry point for all external requests.
-Provides full CRUD APIs, search, auth, and orchestration control.
+Provides full CRUD APIs, search, auth, resume matching, and orchestration control.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from services.gateway.routers import auth, jobs, search, users, admin, analytics, notifications
+from services.gateway.routers import auth, jobs, search, users, admin, analytics, notifications, resume
 from shared.database.session import create_tables
 from shared.utils.logging import setup_logging
 from shared.utils.metrics import setup_metrics
@@ -79,7 +79,18 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(","),
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://localhost:8000",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ] + [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -107,6 +118,7 @@ app.include_router(users.router,         prefix=f"{API_PREFIX}/users",          
 app.include_router(notifications.router, prefix=f"{API_PREFIX}/notifications",  tags=["Notifications"])
 app.include_router(analytics.router,     prefix=f"{API_PREFIX}/analytics",      tags=["Analytics"])
 app.include_router(admin.router,         prefix=f"{API_PREFIX}/admin",          tags=["Admin"])
+app.include_router(resume.router,        prefix=f"{API_PREFIX}/resume",         tags=["Resume Matching"])
 
 
 # ─── Root Endpoints ───────────────────────────────────────────────────────────

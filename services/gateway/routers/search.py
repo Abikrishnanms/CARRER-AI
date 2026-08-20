@@ -10,7 +10,7 @@ import time
 from typing import Any
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from shared.database.session import get_db
@@ -19,8 +19,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def trigger_search_collection(q: str, location: str | None = None) -> None:
+    """Trigger background collection for search term."""
+    try:
+        from shared.kafka.producer import get_producer
+        from shared.kafka.topics import TOPICS
+        import uuid
+
+        producer = await get_producer()
+        task = {
+            "task_id": str(uuid.uuid4()),
+            "sources": ["adzuna", "greenhouse", "indeed", "rss"],
+            "search_terms": [q],
+            "location": location,
+            "limit": 100,
+            "triggered_by": "search_auto_trigger",
+            "triggered_at": datetime.utcnow().isoformat(),
+        }
+        await producer.send(TOPICS.COLLECTION_TRIGGER, task)
+        logger.info(f"Triggered background collection for search: q='{q}', location='{location}'")
+    except Exception as e:
+        logger.error(f"Failed to trigger background search collection: {e}")
+
+
 @router.get("", summary="Semantic job search")
 async def search_jobs(
+    background_tasks: BackgroundTasks,
     q: str = Query(..., min_length=1, description="Search query — natural language supported"),
     location: str | None = Query(None),
     remote: str | None = Query(None),
@@ -41,6 +65,9 @@ async def search_jobs(
     3. Business rules (trust score, freshness) for ranking
     """
     start = time.perf_counter()
+
+    # Trigger background scraping for this search term
+    background_tasks.add_task(trigger_search_collection, q, location)
 
     # Try vector search first
     results = await _hybrid_search(
@@ -226,6 +253,8 @@ async def _mongodb_fts_search(
         filters["$or"] = filters.get("$or", []) + [
             {"location_city": {"$regex": location, "$options": "i"}},
             {"location_state": {"$regex": location, "$options": "i"}},
+            {"location_country": {"$regex": location, "$options": "i"}},
+            {"location_raw": {"$regex": location, "$options": "i"}},
         ]
     if remote:
         filters["remote_type"] = remote

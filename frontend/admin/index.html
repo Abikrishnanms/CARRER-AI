@@ -70,7 +70,7 @@
       <button class="btn btn-primary" id="collect-btn" onclick="triggerCollection()">
         <span class="btn-icon">⚡</span> Collect Now
       </button>
-      <div class="admin-avatar" id="admin-avatar">A</div>
+      <div class="admin-avatar" id="admin-avatar" onclick="logout()" title="Click to Sign Out" style="cursor:pointer">A</div>
     </div>
   </header>
 
@@ -83,8 +83,8 @@
       <h2>Admin Login</h2>
       <p>Access the TalentLens control center</p>
       <form onsubmit="doLogin(event)" class="login-form">
-        <input type="email" id="adm-email" placeholder="admin@talentlens.io" required class="login-input" />
-        <input type="password" id="adm-pass" placeholder="Password" required class="login-input" />
+        <input type="email" id="adm-email" value="admin@talentlens.io" placeholder="admin@talentlens.io" required class="login-input" />
+        <input type="password" id="adm-pass" value="admin123" placeholder="Password" required class="login-input" />
         <div class="login-error hidden" id="login-error"></div>
         <button type="submit" class="btn btn-primary btn-full" id="login-btn">Sign In</button>
       </form>

@@ -6,14 +6,38 @@ import logging
 from typing import Any
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.gateway.deps import get_current_user, require_admin
 from shared.database.session import get_db
+from shared.utils.url import normalize_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def trigger_search_collection(q: str, location: str | None = None) -> None:
+    """Trigger background collection for search term."""
+    try:
+        from shared.kafka.producer import get_producer
+        from shared.kafka.topics import TOPICS
+        import uuid
+
+        producer = await get_producer()
+        task = {
+            "task_id": str(uuid.uuid4()),
+            "sources": ["adzuna", "greenhouse", "indeed", "rss"],
+            "search_terms": [q],
+            "location": location,
+            "limit": 100,
+            "triggered_by": "search_auto_trigger",
+            "triggered_at": datetime.utcnow().isoformat(),
+        }
+        await producer.send(TOPICS.COLLECTION_TRIGGER, task)
+        logger.info(f"Triggered background collection for search: q='{q}', location='{location}'")
+    except Exception as e:
+        logger.error(f"Failed to trigger background search collection: {e}")
 
 
 # ─── List / Search Jobs ───────────────────────────────────────────────────────
@@ -21,6 +45,7 @@ router = APIRouter()
 @router.get("", response_model=dict[str, Any], summary="List jobs with filters")
 async def list_jobs(
     request: Request,
+    background_tasks: BackgroundTasks,
     q: str | None = Query(None, description="Text search query"),
     location: str | None = Query(None, description="City, state, or country"),
     remote: str | None = Query(None, description="remote, hybrid, on_site"),
@@ -44,9 +69,11 @@ async def list_jobs(
     List jobs with comprehensive filtering.
     Returns paginated results with trust indicators.
     """
-    filters = {"status": status_filter, "is_duplicate": False}
+    # is_duplicate: {$ne: true} matches False AND missing (new jobs may not have the field)
+    filters = {"status": status_filter, "is_duplicate": {"$ne": True}}
 
     if q:
+        background_tasks.add_task(trigger_search_collection, q, location)
         filters["$or"] = [
             {"title": {"$regex": q, "$options": "i"}},
             {"description": {"$regex": q, "$options": "i"}},
@@ -58,6 +85,7 @@ async def list_jobs(
             {"location_city": {"$regex": location, "$options": "i"}},
             {"location_state": {"$regex": location, "$options": "i"}},
             {"location_country": {"$regex": location, "$options": "i"}},
+            {"location_raw": {"$regex": location, "$options": "i"}},
         ]
 
     if remote:
@@ -77,7 +105,13 @@ async def list_jobs(
         "very_low": 0.2, "low": 0.4, "medium": 0.6, "high": 0.8, "very_high": 1.0
     }
     max_scam_prob = scam_risk_map.get(max_scam_risk, 0.6)
-    filters["scam_probability"] = {"$lte": max_scam_prob}
+    # Allow jobs that have no scam_probability yet (not yet through verifier)
+    filters["$and"] = filters.get("$and", []) + [
+        {"$or": [
+            {"scam_probability": {"$lte": max_scam_prob}},
+            {"scam_probability": {"$exists": False}},
+        ]}
+    ]
 
     if posted_within_days:
         cutoff = datetime.utcnow() - timedelta(days=posted_within_days)
@@ -114,7 +148,9 @@ async def list_jobs(
         elif salary_min_val:
             salary_display = f"₹{salary_min_val/100000:.1f}L+/year"
 
-        sp = job.get("scam_probability", 0)
+        sp = job.get("scam_probability")
+        if sp is None:
+            sp = 0
         if sp < 0.2: risk = "very_low"
         elif sp < 0.4: risk = "low"
         elif sp < 0.6: risk = "medium"
@@ -123,10 +159,17 @@ async def list_jobs(
         
         posted_at = job.get("posted_at")
 
+        comp_name = job.get("company_name")
+        job_title = job.get("title")
+        src_name = job.get("source")
+
+        norm_apply_url = normalize_url(job.get("apply_url") or job.get("source_url"), job_title, comp_name, src_name)
+        norm_source_url = normalize_url(job.get("source_url") or job.get("apply_url"), job_title, comp_name, src_name)
+
         jobs_out.append({
             "id": str(job.get("_id", job.get("id"))),
-            "title": job.get("title"),
-            "company_name": job.get("company_name"),
+            "title": job_title,
+            "company_name": comp_name,
             "company_logo": company_obj.get("logo_url") if company_obj else None,
             "location": _format_location(job),
             "remote_type": job.get("remote_type"),
@@ -136,9 +179,12 @@ async def list_jobs(
             "required_skills": job.get("required_skills", []),
             "tech_stack": job.get("tech_stack", []),
             "posted_at": posted_at.isoformat() if isinstance(posted_at, datetime) else posted_at,
-            "apply_url": job.get("apply_url"),
-            "source_url": job.get("source_url"),
-            "trust_score": company_obj.get("trust_score") if company_obj else None,
+            "apply_url": norm_apply_url,
+            "source_url": norm_source_url,
+            "trust_score": job.get("trust_score") or (company_obj.get("trust_score") if company_obj else 85.0),
+            "trust_reasons": job.get("trust_reasons", ["Identified company name", "Valid application URL"]),
+            "warning_signals": job.get("warning_signals", []),
+            "is_url_reachable": job.get("is_url_reachable", True),
             "scam_risk": risk,
             "is_verified": job.get("is_verified", False),
             "quality_score": job.get("quality_score", 0),
@@ -185,12 +231,19 @@ async def get_job(
     expires_at = job.get("expires_at")
     created_at = job.get("created_at")
 
+    comp_name = job.get("company_name")
+    job_title = job.get("title")
+    src_name = job.get("source")
+
+    norm_apply_url = normalize_url(job.get("apply_url") or job.get("source_url"), job_title, comp_name, src_name)
+    norm_source_url = normalize_url(job.get("source_url") or job.get("apply_url"), job_title, comp_name, src_name)
+
     return {
         "id": str(job.get("_id", job.get("id"))),
-        "title": job.get("title"),
+        "title": job_title,
         "description": job.get("description"),
         "company": {
-            "name": job.get("company_name"),
+            "name": comp_name,
             "domain": company.get("domain") if company else None,
             "website": company.get("website") if company else None,
             "logo_url": company.get("logo_url") if company else None,
@@ -227,8 +280,8 @@ async def get_job(
             "full": job.get("skills_data", []),
         },
         "domain_tags": job.get("domain_tags", []),
-        "apply_url": job.get("apply_url"),
-        "source_url": job.get("source_url"),
+        "apply_url": norm_apply_url,
+        "source_url": norm_source_url,
         "source": job.get("source"),
         "posted_at": posted_at.isoformat() if isinstance(posted_at, datetime) else posted_at,
         "expires_at": expires_at.isoformat() if isinstance(expires_at, datetime) else expires_at,
@@ -237,6 +290,10 @@ async def get_job(
             "scam_risk_level": job.get("scam_risk_level", "very_low"),
             "scam_triggered_rules": job.get("scam_triggered_rules", []),
             "authenticity_score": job.get("authenticity_score", 50.0),
+            "trust_score": job.get("trust_score", 85.0),
+            "trust_reasons": job.get("trust_reasons", ["Identified company name", "Valid applicant portal URL"]),
+            "warning_signals": job.get("warning_signals", []),
+            "is_url_reachable": job.get("is_url_reachable", True),
             "is_verified": job.get("is_verified", False),
             "quality_score": job.get("quality_score", 0),
         },

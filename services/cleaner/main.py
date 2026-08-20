@@ -116,6 +116,28 @@ def normalize_job_type(raw: str | None) -> str:
     return "unknown"
 
 
+def detect_job_type(text: str) -> str:
+    """
+    Detect job type from arbitrary text (title, description, etc.)
+    Returns canonical job-type string: full_time, part_time, contract, internship, freelance.
+    """
+    if not text:
+        return "unknown"
+    text_lower = text.lower()
+    if any(k in text_lower for k in ["full time", "full-time", "fulltime", "permanent"]):
+        return "full_time"
+    if any(k in text_lower for k in ["part time", "part-time", "parttime"]):
+        return "part_time"
+    if any(k in text_lower for k in ["contract", "6-month", "6 month", "short term"]):
+        return "contract"
+    if any(k in text_lower for k in ["intern", "internship", "trainee"]):
+        return "internship"
+    if any(k in text_lower for k in ["freelance", "gig", "project-based"]):
+        return "freelance"
+    return "unknown"
+
+
+
 def detect_remote_type(title: str, description: str, location: str | None) -> str:
     """Detect if a job is remote, hybrid, or on-site."""
     text = f"{title} {description} {location or ''}".lower()
@@ -128,70 +150,126 @@ def detect_remote_type(title: str, description: str, location: str | None) -> st
 
 class CleanerService:
     """
-    Data Cleaning Agent.
-    - Strips HTML from descriptions
-    - Normalizes locations, salaries, job types
-    - Detects remote type
-    - Persists cleaned data to MongoDB
-    - Publishes cleaned job to job.cleaned
+    Data Cleaning Agent — HIGH-THROUGHPUT BATCH MODE.
+    - Consumes batches from job.raw via consume_batch (100+ at a time)
+    - Cleans each job in parallel using asyncio semaphore
+    - Bulk-upserts to MongoDB using bulk_write
+    - Batch-publishes to job.cleaned using producer.send_batch
     """
+
+    DEFAULT_BATCH_SIZE = int(__import__("os").getenv("CLEANER_BATCH_SIZE", "150"))
+    CONCURRENT_JOBS = int(__import__("os").getenv("CLEANER_WORKERS", "60"))
 
     def __init__(self) -> None:
         self.producer = KafkaProducerClient()
         self.consumer = KafkaConsumerClient(
             topics=[TOPICS.JOB_RAW],
             group_id="cleaner-service",
+            max_poll_records=max(200, self.DEFAULT_BATCH_SIZE * 2),
         )
         self.running = False
+        self._sem = asyncio.Semaphore(self.CONCURRENT_JOBS)
 
     async def start(self) -> None:
         await self.producer.start()
         await self.consumer.start()
         self.running = True
-        logger.info("🧹 Cleaner service started")
-        await self.consumer.consume(self._handle_message)
+        logger.info(
+            f"🧹 Cleaner service started (batch={self.DEFAULT_BATCH_SIZE}, "
+            f"workers={self.CONCURRENT_JOBS})"
+        )
+        await self.consumer.consume_batch(
+            self._handle_batch,
+            batch_size=self.DEFAULT_BATCH_SIZE,
+            timeout_ms=2000,
+        )
 
     async def stop(self) -> None:
         self.running = False
         await self.producer.stop()
         await self.consumer.stop()
 
-    async def _handle_message(self, message: dict, *args) -> None:
-        start = time.monotonic()
-        job_id = message.get("id", str(uuid.uuid4()))
+    async def _handle_batch(self, messages: list[dict]) -> None:
+        t0 = time.monotonic()
+        if not messages:
+            return
 
+        # Step 1: Clean each job in parallel with bounded concurrency
+        cleaned_results: list[tuple[str, dict] | None] = []
+
+        async def _clean_one(raw: dict) -> tuple[str, dict] | None:
+            async with self._sem:
+                job_id = raw.get("id", raw.get("_id") or str(uuid.uuid4()))
+                try:
+                    cleaned = self._clean_job(raw)
+                    cleaned["status"] = "cleaned"
+                    cleaned["_id"] = job_id
+                    return job_id, cleaned
+                except Exception as e:
+                    logger.debug(f"Clean failed {job_id}: {e}")
+                    return None
+
+        tasks = [asyncio.create_task(_clean_one(m)) for m in messages]
+        results = await asyncio.gather(*tasks)
+        cleaned_map: dict[str, dict] = {jid: c for r in results if r is not None for jid, c in [r]}
+        if not cleaned_map:
+            return
+
+        # Step 2: Bulk upsert into MongoDB (one round-trip)
         try:
-            cleaned = self._clean_job(message)
-            cleaned["status"] = "cleaned"
-            cleaned["_id"] = job_id
-
-            # Persist to MongoDB
+            from pymongo import UpdateOne
             client = get_mongo_client()
             db = client["jobplatform"]
-            await db.jobs.update_one(
-                {"_id": job_id},
-                {"$set": cleaned},
-                upsert=True,
-            )
-
-            # Log pipeline event
-            duration_ms = (time.monotonic() - start) * 1000
-            await db.pipeline_events.insert_one({
-                "_id": str(uuid.uuid4()),
-                "job_id": job_id,
-                "event_type": "job.cleaned",
-                "agent_name": "cleaner",
-                "status": "success",
-                "duration_ms": duration_ms,
-                "created_at": datetime.utcnow(),
-            })
-
-            # Publish downstream
-            await self.producer.send(TOPICS.JOB_CLEANED, cleaned, key=job_id)
-            logger.debug(f"Cleaned job {job_id} in {duration_ms:.1f}ms")
-
+            ops = [
+                UpdateOne({"_id": jid}, {"$set": doc}, upsert=True)
+                for jid, doc in cleaned_map.items()
+            ]
+            if ops:
+                await db.jobs.bulk_write(ops, ordered=False)
         except Exception as e:
-            logger.exception(f"Failed to clean job {job_id}: {e}")
+            logger.warning(f"Cleaner bulk_write failed, falling back to per-job: {e}")
+            # Fallback per-job
+            client = get_mongo_client()
+            db = client["jobplatform"]
+            for jid, doc in cleaned_map.items():
+                try:
+                    await db.jobs.update_one({"_id": jid}, {"$set": doc}, upsert=True)
+                except Exception:
+                    pass
+
+        # Step 3: Batch-publish pipeline events (fire & forget, non-fatal)
+        try:
+            from pymongo import InsertOne
+            client = get_mongo_client()
+            db = client["jobplatform"]
+            inserts = [
+                InsertOne({
+                    "_id": str(uuid.uuid4()),
+                    "job_id": jid,
+                    "event_type": "job.cleaned",
+                    "agent_name": "cleaner",
+                    "status": "success",
+                    "duration_ms": 0.0,
+                    "created_at": datetime.utcnow(),
+                })
+                for jid in cleaned_map
+            ]
+            if inserts:
+                await db.pipeline_events.bulk_write(inserts, ordered=False)
+        except Exception:
+            pass
+
+        # Step 4: Batch publish downstream to Kafka
+        to_send: list[tuple[dict, str]] = [
+            (c, jid) for jid, c in cleaned_map.items()
+        ]
+        published = await self.producer.send_batch(TOPICS.JOB_CLEANED, to_send)
+
+        elapsed = time.monotonic() - t0
+        logger.info(
+            f"📦 Cleaner batch: {published}/{len(messages)} cleaned & published "
+            f"in {elapsed*1000:.0f}ms ({len(messages)/max(0.001, elapsed):.0f} j/s)"
+        )
 
     def _clean_job(self, raw: dict) -> dict:
         """Apply all cleaning transformations."""
@@ -205,10 +283,19 @@ class CleanerService:
         job_type = normalize_job_type(raw.get("job_type_raw"))
         remote_type = detect_remote_type(title, description, location_raw)
 
+        from shared.utils.url import normalize_url
+
+        source_name = raw.get("source", "unknown")
+        raw_source_url = raw.get("source_url")
+        raw_apply_url = raw.get("apply_url") or raw_source_url
+
+        source_url = normalize_url(raw_source_url, title, company_name, source_name)
+        apply_url = normalize_url(raw_apply_url, title, company_name, source_name)
+
         return {
-            "source": raw.get("source", "unknown"),
+            "source": source_name,
             "source_job_id": raw.get("source_job_id", ""),
-            "source_url": raw.get("source_url", ""),
+            "source_url": source_url,
             "title": title,
             "description": description,
             "company_name": company_name,
@@ -223,7 +310,7 @@ class CleanerService:
             "salary_is_estimated": salary["is_estimated"],
             "job_type": job_type,
             "remote_type": remote_type,
-            "apply_url": raw.get("apply_url"),
+            "apply_url": apply_url,
             "posted_at": raw.get("posted_date_raw"),
             "collection_run_id": raw.get("collection_run_id"),
             "raw_data": raw.get("raw_data", {}),
