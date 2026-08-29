@@ -12,6 +12,7 @@ from app.utils.logger import get_logger
 from database.mongo_client import MongoClient
 from messaging.rabbitmq_client import RabbitMQClient
 from database.qdrant_client import QdrantClient
+from database.postgres_client import PostgresClient
 
 class BaseAgent(ABC):
     def __init__(self, agent_name: str):
@@ -20,6 +21,7 @@ class BaseAgent(ABC):
         self.mongo = MongoClient()
         self.queue = RabbitMQClient()
         self.qdrant = QdrantClient()
+        self.postgres = PostgresClient()
 
     @abstractmethod
     def run(self, *args, **kwargs):
@@ -32,3 +34,4 @@ class BaseAgent(ABC):
         self.mongo.close()
         self.queue.close()
         self.qdrant.close()
+        self.postgres.close()

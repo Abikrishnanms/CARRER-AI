@@ -55,6 +55,11 @@ class AdzunaAgent(BaseAgent):
 
 if __name__ == "__main__":
     agent = AdzunaAgent()
-    result = agent.run(country="in", keyword="data analyst", pages=2)
-    print(result)
+    keywords = ["data analyst", "software engineer", "hr manager", "marketing", "sales executive"]
+    total_inserted = 0
+    for kw in keywords:
+        result = agent.run(country="in", keyword=kw, pages=5)
+        total_inserted += result["inserted"]
+    print(f"Total inserted across all keywords: {total_inserted}")
     agent.close()
+    

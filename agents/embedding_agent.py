@@ -28,7 +28,7 @@ class EmbeddingAgent(BaseAgent):
             self.logger.warning(f"No Mongo document found for {url}")
             return
 
-        text = f"{doc.get('title', '')} {doc.get('description', '')}".strip()
+        text = doc.get('title', '').strip()
         if not text:
             self.logger.warning(f"Empty text for {url}, skipping embedding")
             return
@@ -38,6 +38,7 @@ class EmbeddingAgent(BaseAgent):
         payload = {
             "title": doc.get("title"),
             "company": doc.get("company"),
+            "description":doc.get("description"),
             "source": source,
             "url": url,
         }

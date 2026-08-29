@@ -4,15 +4,12 @@ embedding/embedding_utils.py
 Wraps the sentence-transformers model for generating job posting embeddings.
 """
 
+import streamlit as st
 from sentence_transformers import SentenceTransformer
 
-_model = None
-
+@st.cache_resource
 def get_model():
-    global _model
-    if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-    return _model
+    return SentenceTransformer("all-MiniLM-L6-v2")
 
 def embed_text(text: str):
     model = get_model()
