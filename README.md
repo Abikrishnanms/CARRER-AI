@@ -1,4 +1,4 @@
-# 🧠 TALENTLENS — AI-Powered Job Intelligence Platform
+# 🧠 TALENTLENS -Powered Job Intelligence Platform
 
 > An enterprise-grade, fully containerized microservices platform that scrapes, cleans, deduplicates, enriches, verifies, and indexes job listings — powered by ML-based salary estimation, scam detection, and semantic vector search.
 
@@ -70,8 +70,8 @@
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/Abikrishnanms/TALENTLENS-AI.git
-cd TALENTLENS-AI
+git clone https://github.com/Abikrishnanms/TALENTLENS.git
+cd TALENTLENS
 cp .env.example .env
 # Edit .env with your API keys (ADZUNA_API_ID, ADZUNA_API_KEY, etc.)
 ```
@@ -115,7 +115,7 @@ curl http://localhost:8000/health
 ## 📂 Project Structure
 
 ```
-TALENTLENS-AI/
+TALENTLENS/
 ├── services/                   # Microservices (each has its own Dockerfile)
 │   ├── gateway/                # FastAPI API gateway (:8000)
 │   ├── collector/              # Job scraping from web sources
