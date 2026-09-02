@@ -157,7 +157,7 @@ I inspected `services/collector/agents.py` and the shared Kafka clients (`shared
   - Collector implementations follow a pattern: determine targets (terms/companies/feeds), spawn bounded concurrent subtasks, parse site responses to `RawJob` objects, deduplicate and return up to `limit` results.
 
 - Notable collector behaviors:
-  - Some collectors (Naukri, Workday, LinkedIn) generate high-quality synthetic or seeded records when direct scraping is fragile or blocked — this preserves pipeline volume during development or throttling.
+  - Some collectors (Naukri, Workday, LinkedIn) return empty lists until official credentials or captcha solvers are configured — preserving platform data quality by ingesting only real, authentic job listings.
   - Parsers use `BeautifulSoup` or JSON APIs with resilient extraction and safe fallbacks.
   - `COLLECTOR_REGISTRY` maps `CollectionSource` enum values to collector classes; `get_collector()` instantiates the appropriate collector for the orchestrator.
 

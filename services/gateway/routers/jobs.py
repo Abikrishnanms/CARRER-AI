@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -32,7 +32,7 @@ async def trigger_search_collection(q: str, location: str | None = None) -> None
             "location": location,
             "limit": 100,
             "triggered_by": "search_auto_trigger",
-            "triggered_at": datetime.utcnow().isoformat(),
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
         }
         await producer.send(TOPICS.COLLECTION_TRIGGER, task)
         logger.info(f"Triggered background collection for search: q='{q}', location='{location}'")
@@ -114,7 +114,7 @@ async def list_jobs(
     ]
 
     if posted_within_days:
-        cutoff = datetime.utcnow() - timedelta(days=posted_within_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=posted_within_days)
         filters["posted_at"] = {"$gte": cutoff}
 
     # Count total
@@ -371,7 +371,7 @@ async def report_job(
         "agent_name": "user",
         "status": "pending_review",
         "payload": {"reason": reason, "details": details},
-        "created_at": datetime.utcnow()
+        "created_at": datetime.now(timezone.utc)
     }
     await db.pipeline_events.insert_one(event)
 

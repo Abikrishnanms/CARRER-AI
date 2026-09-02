@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
     -r /tmp/verifier-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/verifier/ ./services/verifier/
+COPY services/ ./services/
 COPY ml/ ./ml/
 
 ENV PYTHONPATH="/app"

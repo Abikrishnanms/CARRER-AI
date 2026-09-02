@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -34,7 +34,7 @@ async def trigger_search_collection(q: str, location: str | None = None) -> None
             "location": location,
             "limit": 100,
             "triggered_by": "search_auto_trigger",
-            "triggered_at": datetime.utcnow().isoformat(),
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
         }
         await producer.send(TOPICS.COLLECTION_TRIGGER, task)
         logger.info(f"Triggered background collection for search: q='{q}', location='{location}'")

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -86,7 +86,7 @@ async def update_profile(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> dict[str, Any]:
     """Update the current user's profile."""
-    update: dict[str, Any] = {"updated_at": datetime.utcnow()}
+    update: dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
 
     if body.full_name is not None:
         update["full_name"] = body.full_name
@@ -124,7 +124,7 @@ async def deactivate_account(
     """Deactivate the current user's account (soft delete)."""
     await db.users.update_one(
         {"_id": user["sub"]},
-        {"$set": {"is_active": False, "updated_at": datetime.utcnow()}},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
     )
     return {"message": "Account deactivated"}
 
@@ -177,7 +177,7 @@ async def create_saved_search(
         "query": body.query,
         "filters": body.filters,
         "alert_enabled": body.alert_enabled,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
         "last_triggered_at": None,
     }
     await db.saved_searches.insert_one(doc)
@@ -195,7 +195,7 @@ async def update_saved_search(
     """Update a saved search."""
     result = await db.saved_searches.update_one(
         {"_id": search_id, "user_id": user["sub"]},
-        {"$set": {**body.model_dump(), "updated_at": datetime.utcnow()}},
+        {"$set": {**body.model_dump(), "updated_at": datetime.now(timezone.utc)}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Saved search not found")
@@ -240,7 +240,7 @@ async def update_preferences(
         {"_id": user["sub"]},
         {"$set": {
             "notification_preferences": body.model_dump(),
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         }},
     )
     return {"message": "Preferences updated"}
@@ -304,7 +304,7 @@ async def track_event(
             "title": job.get("title") if job else None,
             "company": job.get("company_name") if job else None,
         },
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
     })
 
     return {"message": f"Event '{event_type}' tracked for job {job_id}"}

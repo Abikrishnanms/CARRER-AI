@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
     -r /tmp/enrichment-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/enrichment/ ./services/enrichment/
+COPY services/ ./services/
 COPY ml/ ./ml/
 
 ENV PYTHONPATH="/app"

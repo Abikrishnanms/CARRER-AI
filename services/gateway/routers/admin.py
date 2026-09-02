@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -65,7 +65,7 @@ async def admin_stats(
     pending_notifications = await db.notification_logs.count_documents({"status": "pending"})
 
     # Pipeline events last 24h
-    cutoff = datetime.utcnow() - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     events_24h = await db.pipeline_events.count_documents({"created_at": {"$gte": cutoff}})
     failed_events = await db.pipeline_events.count_documents(
         {"created_at": {"$gte": cutoff}, "status": "failed"}
@@ -103,7 +103,7 @@ async def admin_stats(
             "scam_rejected": scam_rejected,
             "high_risk_flagged": high_risk,
         },
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -127,7 +127,7 @@ async def trigger_collection(
             "location": body.location,
             "limit": body.limit,
             "triggered_by": "admin_api",
-            "triggered_at": datetime.utcnow().isoformat(),
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
         }
         await producer.send(TOPICS.COLLECTION_TRIGGER, task)
         logger.info(f"Admin triggered collection: sources={body.sources}")
@@ -150,7 +150,7 @@ async def get_pipeline_details(
     _: Any = Depends(require_admin),
 ) -> dict[str, Any]:
     """Get detailed pipeline event log for monitoring."""
-    cutoff = datetime.utcnow() - timedelta(hours=since_hours)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
 
     cursor = (
         db.pipeline_events.find({"created_at": {"$gte": cutoff}})
@@ -202,7 +202,7 @@ async def repair_published_jobs(
     stuck_statuses = ["cleaned", "enriched", "verified"]
     result = await db.jobs.update_many(
         {"status": {"$in": stuck_statuses}},
-        {"$set": {"status": "published", "updated_at": datetime.utcnow()}},
+        {"$set": {"status": "published", "updated_at": datetime.now(timezone.utc)}},
     )
     logger.info(
         "Admin repair-published: promoted %d jobs (%s → published)",
@@ -213,7 +213,7 @@ async def repair_published_jobs(
         "promoted": result.modified_count,
         "from_statuses": stuck_statuses,
         "to_status": "published",
-        "repaired_at": datetime.utcnow().isoformat(),
+        "repaired_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -240,7 +240,7 @@ async def update_job_status(
             "status": body.status,
             "admin_override": True,
             "admin_override_reason": body.reason,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         }},
     )
     if result.matched_count == 0:
@@ -254,7 +254,7 @@ async def update_job_status(
         "agent_name": "admin",
         "status": body.status,
         "payload": {"reason": body.reason},
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
     })
 
     logger.info(f"Admin updated job {job_id} status to {body.status}")
@@ -363,7 +363,7 @@ async def update_user_role(
 
     result = await db.users.update_one(
         {"_id": user_id},
-        {"$set": {"role": body.role, "updated_at": datetime.utcnow()}},
+        {"$set": {"role": body.role, "updated_at": datetime.now(timezone.utc)}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -380,7 +380,7 @@ async def deactivate_user(
     """Deactivate a user account (admin override)."""
     result = await db.users.update_one(
         {"_id": user_id},
-        {"$set": {"is_active": False, "updated_at": datetime.utcnow()}},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")

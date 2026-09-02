@@ -1,7 +1,7 @@
-# 🧠 TalentLens Platform — Deployment Runbook & Status Report
+# 🧠 Job Intelligence Platform — Deployment Runbook
 
-> **Official Runbook** for starting the TalentLens AI-Powered Job Intelligence Platform on Windows.
-> Generated: 2026-08-13 | Environment: Windows / Docker Desktop / PowerShell / Python 3.12
+> **Official Runbook** for deploying the AI-Powered Job Intelligence Platform.
+> Last Updated: 2026-08-30 | Environment: Linux / Docker Compose / Python 3.12
 
 ---
 
@@ -10,12 +10,12 @@
 1. [Executive Summary](#-executive-summary)
 2. [Platform Architecture](#-platform-architecture)
 3. [Prerequisites](#-prerequisites)
-4. [🚀 FIRST TIME Setup — Fresh Install](#-first-time-setup--fresh-install)
-5. [🔁 SUBSEQUENT RUNS — 2nd, 3rd, Nth Time](#-subsequent-runs--every-time-after-the-first)
-6. [🛑 How to Stop the Platform](#-how-to-stop-the-platform)
-7. [✅ Post-Deployment Validation Checklist](#-post-deployment-validation-checklist)
-8. [🔧 Bugs Fixed During Initial Deployment (10 Issues)](#-bugs-fixed-during-initial-deployment)
-9. [📊 Final Service Status](#-final-service-status)
+4. [🚀 Quick Start — Single Command](#-quick-start--single-command)
+5. [🔧 First-Time Setup — Fresh Install](#-first-time-setup--fresh-install)
+6. [🔁 Subsequent Runs](#-subsequent-runs)
+7. [🛑 How to Stop the Platform](#-how-to-stop-the-platform)
+8. [✅ Post-Deployment Validation Checklist](#-post-deployment-validation-checklist)
+9. [📊 Service Inventory](#-service-inventory)
 10. [🌐 Live Endpoints Reference](#-live-endpoints-reference)
 11. [📝 Troubleshooting Cheat Sheet](#-troubleshooting-cheat-sheet)
 
@@ -26,40 +26,48 @@
 | Metric | Result |
 |--------|--------|
 | **Platform Status** | ✅ **FULLY OPERATIONAL** |
-| **Core Python Backend** | ✅ Healthy (Gateway + Search + 8 Kafka Workers) |
-| **Docker Infrastructure** | ✅ 11/11 Containers Running |
-| **Frontend UIs** | ✅ Online (Python HTTP server for dev) |
-| **Health Check Score** | **5/5 Services Green** (100%) |
-| **Total Bugs Fixed** | 10 critical issues resolved |
-| **Deployment Time (after fixes)** | ~5 minutes |
+| **Total Containers** | **19 running** (11 infra + 8 microservices + 2 frontends) |
+| **Deployment Method** | Single `docker compose up -d` — fully containerized |
+| **API Gateway** | ✅ Healthy — `http://localhost:8000/health` |
+| **Frontend UIs** | ✅ Job Board (:3000) + Admin Dashboard (:3001) |
+| **Data Pipeline** | 8-stage Kafka pipeline (Collector → Embedder) |
+| **Deployment Time** | ~5 min (first run with image builds: ~15 min) |
 
 ---
 
 ## 🏗️ Platform Architecture
-                      ┌─────────────────────────────────────┐
-                      │      API Gateway :8000 (FastAPI)     │
-                      │    Gateway serves ALL analytics      │
-                      └──────────────┬──────────────────────┘
-                                     │
-          ┌──────────────────────────▼──────────────────────────┐
-          │              Kafka / Redpanda (:9092)                │
-          │  job.raw → job.cleaned → job.deduplicated             │
-          │  → job.enriched → job.verified → job.embedded         │
-          └──────────────────────────────────────────────────────┘
-                 │          │          │          │
-          ┌──────▼──┐ ┌────▼────┐ ┌──▼──────┐ ┌▼──────────┐
-          │Collector│ │ Cleaner │ │Deduplicat│ │ Enrichment│
-          │(sources)│ │Normalize│ │Fingerprint│ │Skills+ML  │
-          └─────────┘ └─────────┘ └──────────┘ └───────────┘
-                                                      │
-                ┌─────────────────────────────────────▼───────┐
-                │  Verifier (XGBoost Scam Detector + Trust)    │
-                │  Embedder (sentence-transformers → Qdrant)   │
-                │  Analytics (aggregates → MongoDB cache)       │
-                └─────────────────────────────────────────────┘
 
+```
+                    ┌─────────────────────────────────────┐
+                    │      API Gateway :8000 (FastAPI)     │
+                    │   Serves jobs, search, analytics     │
+                    └──────────────┬──────────────────────┘
+                                   │
+        ┌──────────────────────────▼──────────────────────────┐
+        │              Redpanda / Kafka (:9092)                │
+        │  raw_jobs → cleaned_jobs → deduplicated_jobs         │
+        │  → enriched_jobs → verified_jobs → (embedder)        │
+        └──────────────────────────────────────────────────────┘
+               │          │          │          │
+        ┌──────▼──┐ ┌────▼────┐ ┌──▼──────┐ ┌▼──────────┐
+        │Collector│ │ Cleaner │ │Deduplicat│ │ Enrichment│
+        │(web     │ │Normalize│ │Fingerprnt│ │Skills+ML  │
+        │scrapers)│ │ + clean │ │via Redis │ │+ Salary   │
+        └─────────┘ └─────────┘ └──────────┘ └───────────┘
+                                                    │
+              ┌─────────────────────────────────────▼───────┐
+              │  Verifier (Scam Detection + Trust Scoring)   │
+              │  Embedder (SentenceTransformers → Qdrant)    │
+              │  Notifier (Email / Webhook / In-App alerts)  │
+              └─────────────────────────────────────────────┘
 
-> **Note:** Analytics is a BACKGROUND WORKER (no HTTP port) — it writes results to MongoDB, and the Gateway serves them via `/api/v1/analytics/*` endpoints.
+        ┌───────────┐  ┌───────────┐
+        │ Job Board │  │   Admin   │
+        │  :3000    │  │  :3001    │
+        └───────────┘  └───────────┘
+```
+
+> **All services are fully containerized.** A single `docker compose up -d` starts the entire platform — no manual Python processes or separate terminal windows needed.
 
 ---
 
@@ -67,234 +75,117 @@
 
 | Tool | Required Version | Check Command |
 |------|------------------|---------------|
-| Docker Desktop | 4.80+ (running!) | `docker version` (must show Server running) |
-| Python | 3.12.x | `python --version` |
-| PowerShell | 5.1+ or 7+ | `$PSVersionTable` |
-| Virtual Env | Activated | `(.venv)` appears in prompt |
-| Dependencies Installed | Once per machine | `pip install -r shared/requirements.txt` + each service's requirements.txt |
-| `.env` File | Exists in project root | Copy `.env.example` → `.env` (passwords can be blank for dev) |
+| Docker Engine | 24.0+ | `docker version` |
+| Docker Compose | v2.20+ | `docker compose version` |
+| `.env` file | Exists in project root | Copy `.env.example` → `.env` if missing |
+| Disk Space | ~10 GB free | For Docker images + volumes |
+
+> **Note:** No local Python, Node.js, or npm installation required — everything runs inside containers.
 
 ---
 
-## 🚀 FIRST TIME Setup — Fresh Install
+## 🚀 Quick Start — Single Command
 
-> ⏱️ ~15 minutes (Docker image pulls take time on first run)
->
-> **IMPORTANT:** Before starting, **accept ALL pending IDE diffs** that fix the 10 bugs listed in Section 8. Without them, deployment will fail.
+```bash
+cd "/path/to/Job Scrapping"
+docker compose up -d
+```
 
----
+That's it. This single command:
+1. Builds all microservice Docker images (if not already built)
+2. Starts 11 infrastructure containers (MongoDB, Redis, Redpanda, etc.)
+3. Creates Kafka topics via `kafka-init`
+4. Starts 8 microservice containers (Gateway, Collector, Cleaner, etc.)
+5. Starts 2 frontend containers (Job Board, Admin Dashboard)
 
-### Step 1. Full Clean State (Fresh Slate)
+**Wait ~30 seconds**, then verify:
+```bash
+curl -s http://localhost:8000/health | python3 -m json.tool
+```
 
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
-
-# --- Remove any leftover containers/volumes from prior broken runs ---
-docker compose down -v
-
-# Clean any manually-created Redis containers (from quick-fix workarounds)
-try { docker rm -f jip-redis } catch {}
-try { docker rm -f 96cd6275c6fa } catch {}
-
-# If the network is "still in use", clean remaining containers first
-$remaining = docker ps -aq --filter "network=jobscrapping_platform"
-if ($remaining) { docker rm -f $remaining }
-try { docker network rm jobscrapping_platform } catch {}
+Expected output:
+```json
+{
+    "status": "healthy",
+    "version": "1.0.0",
+    "environment": "development",
+    "dependencies": {
+        "mongodb": "healthy",
+        "redis": "healthy"
+    }
+}
 ```
 
 ---
 
-### Step 2. Pull Docker Images & Start All Infrastructure (11 Containers)
+## 🔧 First-Time Setup — Fresh Install
 
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
+> ⏱️ ~15 minutes (Docker image pulls + builds take time on first run)
 
-# --- Pull all images (first run = slow, ~5-10 min depending on internet) ---
-docker compose pull `
-    mongodb redis redpanda qdrant elasticsearch `
-    minio redpanda-console minio-init kafka-init `
-    prometheus grafana
+### Step 1. Clone & Configure
 
-# --- Start all 11 infrastructure containers ---
-docker compose up -d `
-    mongodb redis redpanda qdrant elasticsearch `
-    minio redpanda-console minio-init kafka-init `
-    prometheus grafana
+```bash
+cd "/path/to/Job Scrapping"
 
-# --- Verify everything is UP (paste output to yourself) ---
-Start-Sleep -Seconds 10
-Write-Host ""
-Write-Host "=== All Docker Containers ===" -ForegroundColor Cyan
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+# Create .env file if it doesn't exist
+cp .env.example .env   # Edit with your API keys (ADZUNA_API_ID, etc.)
 ```
 
-**✅ What SUCCESS looks like:**
-- All 11 containers show `STATUS = Up X seconds` or `Up X seconds (healthy)`
-- NONE say `Restarting (1)` or `Exited (X)` — if any do, see [Troubleshooting](#-troubleshooting-cheat-sheet)
+### Step 2. Build & Start Everything
+
+```bash
+# Build all images and start all services
+docker compose up -d --build
+```
+
+**What happens during first run:**
+- Docker pulls base images (~5 min depending on internet)
+- Builds 10 custom images (gateway, collector, cleaner, deduplicator, verifier, enrichment, embedder, notifier, jobboard, admin)
+- The `embedder` image takes longest (~3 min) because it downloads the `all-MiniLM-L6-v2` sentence-transformer model
+- Starts all 19+ containers
+
+### Step 3. Verify Deployment
+
+```bash
+# Check all containers are running
+docker compose ps
+
+# Test API Gateway
+curl -s http://localhost:8000/health
+
+# Test frontends
+curl -s -o /dev/null -w "JobBoard: %{http_code}\n" http://localhost:3000
+curl -s -o /dev/null -w "Admin: %{http_code}\n" http://localhost:3001
+```
+
+**✅ Success criteria:**
+- Gateway returns `{"status":"healthy"}`
+- Job Board returns HTTP 200
+- Admin Dashboard returns HTTP 200
+- All containers show `Up` in `docker compose ps`
 
 ---
 
-### Step 3. Start All 10 Python Microservices
+## 🔁 Subsequent Runs
 
-```powershell
-.\scripts\start_dev.ps1 -ServicesOnly
+> ⏱️ ~30 seconds (images are cached, volumes have data)
+
+### Normal Start (after reboot / docker stop)
+
+```bash
+cd "/path/to/Job Scrapping"
+docker compose up -d
 ```
 
-**What happens:**
-1. ✅ Sets `PYTHONPATH` to project root
-2. ✅ Loads `.env` variables
-3. ✅ Opens **10 NEW PowerShell windows** (one per service)
+### Rebuild After Code Changes
 
-**⚠️ DO NOT CLOSE these 10 windows.** Closing them kills the service. You can minimize them.
+If you've modified service source code:
+```bash
+# Rebuild specific service(s) and restart
+docker compose up -d --build gateway collector
 
-**The 10 windows that open:**
-
-| Window | Service | Type | URL (if API) |
-|--------|---------|------|--------------|
-| 1 | Gateway | FastAPI HTTP API | http://localhost:8000/docs |
-| 2 | Collector | Kafka Worker (scrapes jobs) | — |
-| 3 | Cleaner | Kafka Worker (HTML strip / salary parse) | — |
-| 4 | Deduplicator | Kafka Worker (Redis fingerprint) | — |
-| 5 | Enrichment | Kafka Worker (skills ML + salary estimate) | — |
-| 6 | Verifier | Kafka Worker (scam detection + trust) | — |
-| 7 | Embedder | Kafka Worker (Qdrant embeddings) | — |
-| 8 | Notifier | Kafka Worker (email / job alerts) | — |
-| 9 | Search | FastAPI HTTP API | http://localhost:8002/docs |
-| 10 | Analytics | Background Aggregation Worker (no HTTP port) | — |
-
----
-
-### Step 4. Start Frontend UIs (Job Board + Admin Console)
-
-> 💡 Dev shortcut: Use Python's built-in HTTP server (no Docker / no npm needed)
-> The frontends are VANILLA HTML/CSS/JS with NO build step and NO package.json.
-
-Open **2 NEW PowerShell windows** (separate from the 10 above).
-
-**Window 11 — Job Board (port 3000):**
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping\frontend\jobboard"
-python -m http.server 3000
-```
-
-**Window 12 — Admin Console (port 3001):**
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping\frontend\admin"
-python -m http.server 3001
-```
-
-**✅ Result:**
-- Job Board → http://localhost:3000 ✅
-- Admin Console → http://localhost:3001 ✅
-
----
-
-### Step 5. Seed Sample Data (100+ Indian-market jobs)
-
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
-python scripts\seed_data.py
-```
-
-Creates realistic sample jobs:
-- 💼 Roles: Python Dev, ML Engineer, Data Scientist, Full Stack, DevOps, QA, etc.
-- 💰 Salaries: ₹ 2 LPA to ₹ 60 LPA (experience-banded)
-- 📍 Locations: Bengaluru, Delhi NCR, Mumbai, Pune, Hyderabad, Chennai, Remote
-- 🌐 Mix of Remote / Hybrid / On-site
-- 🛡️ Scam probability + verified flag + skills extracted
-
----
-
-### Step 6. Verify Health Check (All 5 GREEN)
-
-```powershell
-python scripts\health_check.py
-```
-
-**🎯 TARGET OUTPUT:**
-══════════════════════════════════════════════════
-TalentLens Platform Health Check
-══════════════════════════════════════════════════
-✅ Gateway API          healthy      (3000–6000ms)
-✅ Search Service       healthy      (300–800ms)
-✅ Prometheus           healthy      (300–500ms)
-✅ MongoDB              healthy      (80–150ms)
-✅ Redis                healthy      (5–20ms)
-──────────────────────────────────────────────────
-✅ ALL SERVICES HEALTHY
-══════════════════════════════════════════════════
-
-
-If you see `ALL SERVICES HEALTHY` — **YOU ARE DONE! 🎉**
-
-Jump to [Live Endpoints Reference](#-live-endpoints-reference) to open the platform.
-
----
-
-## 🔁 SUBSEQUENT RUNS — Every Time After the First
-
-> ⏱️ ~1–2 minutes (images are already cached, volumes have data)
->
-> **Much faster** — no image pulls, no reseeding (data persists in Docker volumes!)
-
----
-
-### Quick-Start (Copy-Paste 4 Blocks)
-
-#### 🔁 Block 1: Start Docker Infrastructure
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
-docker compose up -d `
-    mongodb redis redpanda qdrant elasticsearch `
-    minio redpanda-console minio-init kafka-init `
-    prometheus grafana
-
-# Verify containers are up
-Start-Sleep -Seconds 8
-docker ps --format "table {{.Names}}\t{{.Status}}"
-```
-
-#### 🔁 Block 2: Start 10 Python Microservices
-```powershell
-.\scripts\start_dev.ps1 -ServicesOnly
-```
-*(Opens 10 new windows — leave them open)*
-
-#### 🔁 Block 3: Start Job Board + Admin Frontend UIs
-
-Open 2 new PowerShell windows:
-
-**Window 1 — Job Board :3000:**
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping\frontend\jobboard"
-python -m http.server 3000
-```
-
-**Window 2 — Admin Console :3001:**
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping\frontend\admin"
-python -m http.server 3001
-```
-
-#### 🔁 Block 4: Quick Health Check
-```powershell
-python scripts\health_check.py
-```
-
-✅ All 5 green? Platform is LIVE!
-
----
-
-### Ultra-Shortcut (When You're in a Hurry)
-
-If containers are already running and you just restarted your PC:
-```powershell
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
-# Restart stopped containers
-docker compose start
-# Then do Block 2 + Block 3 (services + frontends)
-.\scripts\start_dev.ps1 -ServicesOnly
-# + Open 2 frontend windows manually
+# Or rebuild everything
+docker compose up -d --build
 ```
 
 ---
@@ -303,108 +194,84 @@ docker compose start
 
 ### Graceful Shutdown (Preserves All Data)
 
-1. **Close the 12 PowerShell windows** (10 services + 2 frontends).
-   - Each running `uvicorn` or `python -m ...` process stops when you press `Ctrl+C` or close the window.
+```bash
+docker compose stop
+```
 
-2. **Stop Docker containers** (preserves all data in volumes):
-   ```powershell
-   cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
-   .\scripts\start_dev.ps1 -Stop
-   ```
-   Or manually:
-   ```powershell
-   docker compose stop
-   ```
+All data is preserved in Docker named volumes (MongoDB, Redis, Qdrant, etc.).
 
 ### Full Wipe (Destroys ALL Data — Fresh Start)
 
-Use only if you want a completely clean slate:
-```powershell
+```bash
 docker compose down -v
 ```
+
+> ⚠️ This deletes all database contents, Kafka topics, and vector embeddings.
 
 ---
 
 ## ✅ Post-Deployment Validation Checklist
 
-Mark each after completing:
-
 | # | Task | Command / URL | Pass? |
 |---|------|---------------|-------|
-| 1 | Docker Desktop running | `docker version` shows Server running | ⬜ |
-| 2 | All 11 containers `Up` | `docker ps --format "table {{.Names}}\t{{.Status}}"` | ⬜ |
-| 3 | Gateway `/health` OK | http://localhost:8000/health → `{"status":"healthy"}` | ⬜ |
-| 4 | Search `/health` OK | http://localhost:8002/health → `{"status":"healthy"}` | ⬜ |
-| 5 | Redis `PING → PONG` | `docker exec jip-redis redis-cli ping` → `PONG` | ⬜ |
-| 6 | MongoDB accessible | health_check.py → ✅ MongoDB healthy | ⬜ |
-| 7 | Prometheus scraping | http://localhost:9090/-/healthy → `Prometheus is Healthy.` | ⬜ |
-| 8 | Kafka topics exist | http://localhost:8080 → topics tab → see `job.raw`, `job.cleaned`, ... | ⬜ |
-| 9 | Gateway `GET /api/v1/jobs` returns jobs | http://localhost:8000/docs#/jobs/get_jobs_api_v1_jobs__get → Execute → jobs array | ⬜ |
-| 10 | Job Board UI loads | http://localhost:3000 → Home page renders with search bar | ⬜ |
-| 11 | Admin Console loads | http://localhost:3001 → Dashboard renders | ⬜ |
-| 12 | Unit tests pass (optional) | `pytest tests/unit/ -v` → all green | ⬜ |
-| 13 | Health check ALL green | `python scripts\health_check.py` → 5/5 ✅ | ⬜ |
+| 1 | Docker engine running | `docker version` | ⬜ |
+| 2 | All containers `Up` | `docker compose ps` | ⬜ |
+| 3 | Gateway `/health` OK | `curl http://localhost:8000/health` → `{"status":"healthy"}` | ⬜ |
+| 4 | Redis responds | `docker exec jip-redis redis-cli ping` → `PONG` | ⬜ |
+| 5 | MongoDB responds | Gateway health shows `"mongodb":"healthy"` | ⬜ |
+| 6 | Kafka topics exist | Open http://localhost:8080 → Topics tab | ⬜ |
+| 7 | Prometheus scraping | http://localhost:9090 → Status → Targets | ⬜ |
+| 8 | Qdrant accessible | `curl http://localhost:6333/collections` | ⬜ |
+| 9 | Job Board loads | http://localhost:3000 → renders UI | ⬜ |
+| 10 | Admin Dashboard loads | http://localhost:3001 → renders UI | ⬜ |
+| 11 | API docs accessible | http://localhost:8000/docs → Swagger UI | ⬜ |
 
 ---
 
-## 🔧 Bugs Fixed During Initial Deployment
+## 📊 Service Inventory
 
-These were critical blockers. Ensure the corresponding file diffs are **accepted in your IDE** so future runs work.
+### 🐳 Infrastructure (11 Containers)
 
-| # | File | Bug | Fix |
-|---|------|-----|-----|
-| 1 | `README.md:159` | `PYTHONPATH=. uvicorn ...` is bash syntax, fails in PowerShell | Use `$env:PYTHONPATH = "."; uvicorn ...` |
-| 2 | `docker-compose.yml:7` | `version: "3.9"` triggers Docker Compose v2 obsolete warning → stderr → `$ErrorActionPreference=Stop` kills script | **Removed `version` key** |
-| 3 | `scripts/start_dev.ps1` | `$ErrorActionPreference=Stop` + Docker stderr warnings from compose = script crash on harmless warnings | Wrapped `docker compose` calls with `& cmd /c "command 2>&1"` so stderr is merged as stdout before PowerShell sees it |
-| 4 | `docker-compose.yml:redis` | Empty `REDIS_PASSWORD=` → YAML block sends `--requirepass ""` then `--maxmemory` gets parsed as the password value! | Shell array form + conditional: `${REDIS_PASSWORD:+--requirepass $$REDIS_PASSWORD}` only passes flag if password non-empty |
-| 5 | `docker-compose.yml:redis.healthcheck` | Healthcheck `redis-cli ping` fails if Redis ever sets a password (`NOAUTH` error) | Password-aware test: `redis-cli ${REDIS_PASSWORD:+-a "$REDIS_PASSWORD"} ping | grep -q PONG` |
-| 6 | `docker-compose.yml:redpanda.healthcheck` | `rpk cluster health | grep 'Healthy: true'` is unreliable for single-node dev clusters → becomes `unhealthy` even when broker is fine | 3-layer fallback: `curl :9644/v1/status` → `rpk topic list` → `rpk cluster health`, plus `start_period: 60s` + `retries: 24` (5 min wait allowed) |
-| 7 | `scripts/start_dev.ps1` | Function ordering bug — `Write-Ok` / `Write-Fail` called in Docker pre-check block BEFORE the functions were defined → `Write-Ok not recognized` | **Swapped block order** — helpers first, then pre-check |
-| 8 | `frontend/jobboard/Dockerfile`<br/>`frontend/admin/Dockerfile` | Expected `package.json` + Vite build (`RUN npm install`), but frontends are vanilla HTML/CSS/JS → `ENOENT: no such file or directory` | Dev fix: `python -m http.server`. Permanent Dockerfile fix: use global `http-server` npm package, `COPY . .` directly (no build step) |
-| 9 | `scripts/start_dev.ps1:SERVICES[9]` | Analytics launched with `uvicorn services.analytics.main:app --port 8003`, BUT Analytics is a **background worker** (only `async def main()` — no `app` variable) → `Attribute "app" not found` | Corrected launch command to `python -m services.analytics.main` + added doc comments explaining API vs. Worker dichotomy |
-| 10 | `scripts/start_dev.ps1:INFRA_SERVICES` | Array omitted `prometheus` + `grafana` → they never started, health_check.py always reported `Prometheus unreachable` | Added both services to `INFRA_SERVICES` array so they auto-start |
+| Container | Image | Port(s) | Purpose | Healthcheck |
+|-----------|-------|---------|---------|-------------|
+| `jip-mongodb` | `mongo:7.0` | 27017 | Primary database | ✅ `mongosh ping` |
+| `jip-redis` | `redis:7-alpine` | 6379 | Cache + dedup fingerprints | ✅ `redis-cli ping` |
+| `jip-redpanda` | `redpandadata/redpanda` | 9092, 9644, 8081-8082 | Kafka-compatible broker | ✅ `rpk cluster info` |
+| `jip-redpanda-console` | `redpandadata/console` | 8080 | Kafka management Web UI | — |
+| `jip-kafka-init` | `redpandadata/redpanda` | — | Creates 24 Kafka topics (exit 0) | — |
+| `jip-qdrant` | `qdrant/qdrant` | 6333, 6334 | Vector database (semantic search) | ✅ TCP 6333 |
+| `jip-elasticsearch` | `elasticsearch:8.17.0` | 9200, 9300 | Full-text search | ✅ `curl :9200` |
+| `jip-minio` | `minio/minio` | 9000, 9001 | S3-compatible object storage | ✅ `mc ready local` |
+| `jip-minio-init` | `minio/mc` | — | Creates storage buckets (exit 0) | — |
+| `jip-prometheus` | `prom/prometheus` | 9090 | Metrics collection | — |
+| `jip-grafana` | `grafana/grafana` | 3002 | Monitoring dashboards | — |
 
----
+### ⚙️ Microservices (8 Containers)
 
-## 📊 Final Service Status
+| Container | Service | Type | Description |
+|-----------|---------|------|-------------|
+| `jip-gateway` | API Gateway | FastAPI HTTP (:8000) | REST API, Swagger docs, serves all endpoints |
+| `jip-collector` | Job Collector | Kafka Worker | Scrapes jobs from web sources (Adzuna, Indeed, LinkedIn, etc.) |
+| `jip-cleaner` | Data Cleaner | Kafka Worker | Normalizes HTML, parses salaries, standardizes fields |
+| `jip-deduplicator` | Deduplicator | Kafka Worker | Redis-based fingerprinting to eliminate duplicates |
+| `jip-verifier` | Verifier | Kafka Worker | ML-powered scam detection + trust scoring |
+| `jip-enrichment` | Enrichment | Kafka Worker | Skill extraction, salary estimation via ML |
+| `jip-embedder` | Embedder | Kafka Worker | Generates vector embeddings → Qdrant |
+| `jip-notifier` | Notifier | Kafka Worker | Email / webhook / in-app job alerts |
 
-### 🐳 Docker Infrastructure (11/11 Running)
+### 🌐 Frontend UIs (2 Containers)
 
-| Container | Port(s) | Purpose | Status |
-|-----------|---------|---------|--------|
-| `jip-mongodb` | 27017 | Primary DB | ✅ Healthy |
-| `jip-redis` | 6379 | Cache / Dedup fingerprints | ✅ Healthy |
-| `jip-redpanda` | 9092, 9644, 8081, 8082 | Kafka broker | ✅ Healthy |
-| `jip-redpanda-console` | 8080:8080 | Kafka Web UI | ✅ Running |
-| `jip-kafka-init` | — | Topic initializer (exit 0) | ✅ Completed |
-| `jip-qdrant` | 6333, 6334 | Vector database | ✅ Running |
-| `jip-elasticsearch` | 9200 | Full-text search | ✅ Running |
-| `jip-minio` | 9000, 9001 | S3-compatible storage | ✅ Healthy |
-| `jip-minio-init` | — | Bucket initializer (exit 0) | ✅ Completed |
-| `jip-prometheus` | 9090 | Metrics scraping | ✅ Running |
-| `jip-grafana` | 3002:3000 | Dashboards | ✅ Running |
+| Container | App | URL | Description |
+|-----------|-----|-----|-------------|
+| `jip-jobboard` | Job Board | http://localhost:3000 | Public-facing job search UI |
+| `jip-admin` | Admin Dashboard | http://localhost:3001 | Platform management console |
 
-### 🐍 Python Microservices (10/10 Running)
+### 🔧 Supporting Services
 
-| Service | Process | Type | Status |
-|---------|---------|------|--------|
-| Gateway | `uvicorn ...main:app --port 8000` | FastAPI HTTP | ✅ Running |
-| Search | `uvicorn ...main:app --port 8002` | FastAPI HTTP | ✅ Running |
-| Collector | `python -m services.collector.main` | Kafka Worker | ✅ Running |
-| Cleaner | `python -m services.cleaner.main` | Kafka Worker | ✅ Running |
-| Deduplicator | `python -m services.deduplicator.main` | Kafka Worker | ✅ Running |
-| Enrichment | `python -m services.enrichment.main` | Kafka Worker | ✅ Running |
-| Verifier | `python -m services.verifier.main` | Kafka Worker | ✅ Running |
-| Embedder | `python -m services.embedder.main` | Kafka Worker | ✅ Running |
-| Notifier | `python -m services.notifier.main` | Kafka Worker | ✅ Running |
-| Analytics | `python -m services.analytics.main` | Aggregation Worker | ✅ Running |
-
-### 🌐 Frontend UIs
-
-| App | Serving Method | URL | Status |
-|-----|---------------|-----|--------|
-| Job Board | `python -m http.server 3000` in `frontend/jobboard/` | http://localhost:3000 | ✅ Running |
-| Admin Console | `python -m http.server 3001` in `frontend/admin/` | http://localhost:3001 | ✅ Running |
+| Container | Port | Purpose |
+|-----------|------|---------|
+| `jip-mlflow` | 5000 | ML experiment tracking |
+| `jip-prometheus-init` | — | Bootstraps Prometheus config |
 
 ---
 
@@ -412,208 +279,179 @@ These were critical blockers. Ensure the corresponding file diffs are **accepted
 
 ### 🌟 Core User-Facing
 
-| # | Service | URL | What to Do First |
-|---|---------|-----|-----------------|
-| 1 | **API Gateway (Swagger) 🌟** | http://localhost:8000/docs | Try `GET /api/v1/jobs` → **Execute** |
-| 2 | **Search Service (Swagger)** | http://localhost:8002/docs | Try `GET /search?q=python+remote` |
-| 3 | **Job Board UI 💼** | http://localhost:3000 | Search "Python Developer", filter Remote |
-| 4 | **Admin Console 🔧** | http://localhost:3001 | Browse dashboard, pipeline status |
+| # | Service | URL | Description |
+|---|---------|-----|-------------|
+| 1 | **API Gateway (Swagger)** 🌟 | http://localhost:8000/docs | Interactive API docs — try `GET /api/v1/jobs` |
+| 2 | **API Health Check** | http://localhost:8000/health | JSON health status |
+| 3 | **Job Board UI** 💼 | http://localhost:3000 | Search jobs, filter, apply |
+| 4 | **Admin Console** 🔧 | http://localhost:3001 | Pipeline status, analytics |
 
 ### 🛠️ Infrastructure UIs
 
 | # | Service | URL | Login |
 |---|---------|-----|-------|
-| 5 | Redpanda (Kafka) Console | http://localhost:8080 | — |
-| 6 | Qdrant Vector DB Dashboard | http://localhost:6333 | — |
+| 5 | Redpanda Console (Kafka) | http://localhost:8080 | — |
+| 6 | Qdrant Dashboard | http://localhost:6333/dashboard | — |
 | 7 | MinIO Console | http://localhost:9001 | `minioadmin` / `minioadmin123` |
-| 8 | Prometheus Metrics Explorer | http://localhost:9090 | — |
-| 9 | Grafana Dashboards | http://localhost:3002 | `admin` / `admin` |
-| 10 | Elasticsearch REST | http://localhost:9200 | — (JSON response) |
-
-### 📈 First Thing to Try in Gateway API Docs
-
-👉 http://localhost:8000/docs#/jobs/get_jobs_api_v1_jobs__get
-
+| 8 | Prometheus | http://localhost:9090 | — |
+| 9 | Grafana | http://localhost:3002 | `admin` / `admin` |
+| 10 | Elasticsearch | http://localhost:9200 | — (JSON response) |
+| 11 | MLflow | http://localhost:5000 | — |
 
 ---
 
 ## 📝 Troubleshooting Cheat Sheet
 
-### 🔴 Problem: Redis container `Restarting (1)` loop
+### 🔴 Container shows `Restarting` or `Exited`
 
-**Check logs:**
-```powershell
-docker logs jip-redis --tail 20
+**Diagnose:**
+```bash
+docker logs <container-name> --tail 50
 ```
 
-**If you see `requirepass "--maxmemory" "512mb"` (wrong number of arguments):**
-- The Redis shell-form fix from Bug #4 hasn't been applied yet.
-- Quick workaround (runs clean Redis directly):
-  ```powershell
-  docker rm -f jip-redis
-  docker run -d --name jip-redis --restart unless-stopped --network jobscrapping_platform -p 6379:6379 -v jobscrapping_redis_data:/data redis:7-alpine redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes
-  ```
+**Common causes:**
+- Missing `.env` file → copy `.env.example` to `.env`
+- Port conflict → check `sudo lsof -i :<port>` or `ss -tlnp | grep <port>`
+- Out of memory (especially `jip-embedder`) → increase Docker memory limit
 
 ---
 
-### 🔴 Problem: Redpanda shows `unhealthy` / `dependency redpanda failed to start`
+### 🔴 Gateway returns "Could not import module"
 
-**Check if broker is actually up (healthcheck can be overly strict):**
-```powershell
-docker exec jip-redpanda rpk topic list 2>&1
-```
-If this lists topics (even empty), Redpanda is actually fine — the healthcheck is just slow.
-
-**Fix:** Accept the Redpanda healthcheck fix (Bug #6) which uses 3 fallbacks + 5-minute grace period. Or just wait 2 minutes and rerun `docker compose up -d` — it will continue past the transient unhealthy state.
-
----
-
-### 🔴 Problem: Error loading ASGI app. Attribute "app" not found in module "services.analytics.main"
-
-**Cause:** Running Analytics with `uvicorn ...:app`. Analytics is a WORKER, not an HTTP API.
+**Cause:** Docker image was not rebuilt after code changes.
 
 **Fix:**
-```powershell
-# ❌ WRONG:
-uvicorn services.analytics.main:app --port 8003 --reload
-
-# ✅ CORRECT:
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping"
-$env:PYTHONPATH = "."
-$env:APP_ENV = "development"
-python -m services.analytics.main
+```bash
+docker compose up -d --build gateway
 ```
 
 ---
 
-### 🔴 Problem: `PYTHONPATH=.` command not found
+### 🔴 Microservices fail to connect to Kafka
 
-**Cause:** README bash syntax run in PowerShell.
-
-**Fix:** Use PowerShell env syntax:
-```powershell
-# ❌ BASH only:
-PYTHONPATH=. uvicorn services.gateway.main:app --reload --port 8000
-
-# ✅ PowerShell:
-$env:PYTHONPATH = "."
-uvicorn services.gateway.main:app --reload --port 8000
-
-# Or one-liner:
-$env:PYTHONPATH = "."; uvicorn services.gateway.main:app --reload --port 8000
-```
-
----
-
-### 🔴 Problem: Job Board (:3000) / Admin (:3001) shows "This site can't be reached"
-
-**Cause 1:** Forgetting to start the Python HTTP servers in separate windows. They do NOT auto-start with `docker compose up -d` (Dockerfile is broken for vanilla HTML; must use dev shortcut).
-
-**Cause 2:** Closing the 2 PowerShell windows running `python -m http.server 3000/3001`.
-
-**Fix:** Re-open 2 windows and run the servers:
-```powershell
-# Job Board (:3000)
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping\frontend\jobboard"
-python -m http.server 3000
-```
-```powershell
-# Admin Console (:3001)
-cd "C:\Users\Vivobook pro 15\Desktop\Job Scrapping\frontend\admin"
-python -m http.server 3001
-```
-
----
-
-### 🔴 Problem: `service ... Error response from daemon: Conflict. The container name "/jip-redis" is already in use`
-
-**Cause:** Manually created a container via `docker run` and now `docker compose up` tries to create its own with the same name.
-
-**Fix:** Remove the manual container before running compose:
-```powershell
-docker rm -f jip-redis
-docker compose up -d redis
-```
-
----
-
-### 🔴 Problem: Prometheus shows `unreachable` in health check
-
-**Cause 1:** `prometheus` container isn't running (omitted from `docker compose up` list).
+**Cause:** Redpanda hasn't finished starting, or Kafka topics don't exist.
 
 **Fix:**
-```powershell
-docker compose up -d prometheus
-```
+```bash
+# Verify Redpanda is up
+docker exec jip-redpanda rpk cluster info
 
-**Cause 2:** Container crashed because `./infra/observability/prometheus.yml` doesn't exist.
+# Verify topics exist
+docker exec jip-redpanda rpk topic list
 
-**Fix:** Verify file exists. If missing, create a minimal one:
-```yaml
-global:
-  scrape_interval: 15s
-scrape_configs:
-  - job_name: 'gateway'
-    static_configs:
-      - targets: ['gateway:8000']
+# Re-create topics if missing
+docker compose run --rm kafka-init
 ```
 
 ---
 
-## 📚 Quick Reference Card (Printable)
+### 🔴 MongoDB/Redpanda showing `(unhealthy)` but services still work
+
+**Cause:** On NTFS-mounted partitions, healthcheck commands can be slow. The services are fine — Docker just hasn't received a healthy response within the timeout.
+
+**Fix:** This is cosmetic. Services still function. If you need to force-refresh:
+```bash
+docker compose up -d --force-recreate mongodb redpanda
+```
+
+---
+
+### 🔴 `jip-embedder` exits with code 137
+
+**Cause:** Out of memory — the `all-MiniLM-L6-v2` model + PyTorch needs ~1.5 GB RAM.
+
+**Fix:**
+- Increase Docker Desktop memory limit to at least 8 GB
+- Or restart the container: `docker restart jip-embedder`
+
+---
+
+### 🔴 Frontend shows "This site can't be reached"
+
+**Cause:** Frontend containers haven't started yet.
+
+**Fix:**
+```bash
+docker compose up -d jobboard admin
+docker logs jip-jobboard --tail 10
+docker logs jip-admin --tail 10
+```
+
+---
+
+### 🔴 Kafka topics missing after restart
+
+**Cause:** `kafka-init` only runs once during first deployment.
+
+**Fix:**
+```bash
+docker compose run --rm kafka-init
+```
+
+---
+
+### 🔴 Elasticsearch health: starting (for extended time)
+
+**Cause:** Elasticsearch takes 30-60 seconds to fully initialize, especially on first boot.
+
+**Fix:** Wait 60 seconds and check again:
+```bash
+curl http://localhost:9200/_cluster/health?pretty
+```
+
+---
+
+## 📚 Quick Reference Card
+
+```
 ╔══════════════════════════════════════════════════════════════╗
-║         TALENTLENS — 1-CLICK START CHEAT SHEET               ║
+║      JOB INTELLIGENCE PLATFORM — CHEAT SHEET                ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
-║  FRESH START (FIRST RUN)         NORMAL START (2nd+ RUN)     ║
-║  ──────────────────────         ─────────────────────────    ║
-║  cd "C:...\Job Scrapping"      cd "C:...\Job Scrapping"    ║
-║  docker compose down -v         docker compose up -d \       ║
-║  (accept all IDE diffs)           mongodb redis redpanda \   ║
-║  docker compose pull \            qdrant elasticsearch \     ║
-║    [list of 11 svcs]              minio redpanda-console \   ║
-║  docker compose up -d \           kafka-init minio-init \    ║
-║    [list of 11 svcs]              prometheus grafana         ║
-║  .\scripts\start_dev.ps1 -Serv   .\scripts\start_dev.ps1 -S  ║
-║  python scripts\seed_data.py     (no seed needed!)           ║
-║  + 2 frontend HTTP windows       + 2 frontend HTTP windows   ║
-║  python scripts\health_check.py  python scripts\health_c.py  ║
+║  START EVERYTHING        STOP EVERYTHING                     ║
+║  ─────────────────       ─────────────────                   ║
+║  docker compose up -d    docker compose stop                 ║
 ║                                                              ║
-║  STOP IT:                  FRONTEND URLS:                     ║
-║  .\scripts\start_dev.ps1 -Stop   Job Board: http://:3000     ║
-║  (close 12 PS windows)          Admin:     http://:3001     ║
-║                                  API Docs:  http://:8000/docs║
+║  REBUILD + START         FULL WIPE + RESTART                 ║
+║  ─────────────────       ─────────────────                   ║
+║  docker compose up       docker compose down -v              ║
+║    -d --build            docker compose up -d --build        ║
+║                                                              ║
+║  CHECK STATUS            VIEW LOGS                           ║
+║  ─────────────────       ─────────────────                   ║
+║  docker compose ps       docker logs jip-gateway --tail 50   ║
+║  curl localhost:8000     docker compose logs -f collector    ║
+║    /health                                                   ║
+║                                                              ║
+║  KEY URLS:                                                   ║
+║  ─────────────────                                           ║
+║  Job Board:      http://localhost:3000                        ║
+║  Admin Console:  http://localhost:3001                        ║
+║  API Docs:       http://localhost:8000/docs                   ║
+║  Kafka Console:  http://localhost:8080                        ║
+║  Grafana:        http://localhost:3002                        ║
+║  Prometheus:     http://localhost:9090                        ║
+║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
-
+```
 
 ---
 
-## 🏁 Final Message
+## 🏁 Summary
 
-You are now running an **enterprise-grade, microservices-based AI job intelligence platform** with:
+This platform is an **enterprise-grade, microservices-based AI job intelligence system** with:
 
-- ✅ FastAPI API gateway with auto-generated Swagger docs
-- ✅ 8-stage Kafka pipeline for job processing
-- ✅ ML-powered scam detection, salary estimation, and skill extraction
-- ✅ Semantic vector search via Qdrant + full-text via Elasticsearch
-- ✅ Prometheus + Grafana observability stack
-- ✅ React-ready vanilla JS frontends for job seekers and admins
-
-**Hack away, extend it, train the ML models (`ml/` folder), and enjoy!** 🚀
+- ✅ **Fully containerized** — single `docker compose up -d` deployment
+- ✅ **FastAPI API Gateway** with auto-generated Swagger docs
+- ✅ **8-stage Kafka pipeline** for real-time job processing
+- ✅ **ML-powered** scam detection, salary estimation, and skill extraction
+- ✅ **Semantic vector search** via Qdrant + full-text via Elasticsearch
+- ✅ **Real-time web scraping** from multiple job sources
+- ✅ **Prometheus + Grafana** observability stack
+- ✅ **Job Board + Admin Dashboard** frontend applications
 
 ---
 
 **Document:** `DEPLOYMENT_RUNBOOK.md`
-**Owner:** TalentLens Platform Team
-**Last Updated:** 2026-08-13
-**Next Review:** After applying all diffs and running first clean deployment
-
-
-
-Option 1: Clear Jobs & Re-Seed Fresh Data (Recommended)
-If you want to wipe all sample/scraped jobs and replace them with fresh data:
-```powershell
-$env:PYTHONPATH="."; 
-$env:PYTHONIOENCODING="utf-8"; 
-python scripts/seed_data.py --count 100 --clear
-```
+**Last Updated:** 2026-08-30
+**Platform Version:** 1.0.0

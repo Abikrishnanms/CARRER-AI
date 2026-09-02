@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir \
     -r /tmp/collector-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/collector/ ./services/collector/
+COPY services/ ./services/
 
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1

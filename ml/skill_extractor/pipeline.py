@@ -12,6 +12,7 @@ import argparse
 import json
 import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,9 @@ for category, skills_list in SKILLS_DB.items():
     for skill in skills_list:
         ALL_SKILLS.append(skill)
         SKILL_CATEGORY_MAP[skill.lower()] = category
+
+# O(1) normalization lookup map
+_NORMALIZE_MAP = {s.lower(): s for s in ALL_SKILLS}
 
 # Build regex patterns (sorted by length desc so longer matches win)
 ALL_SKILLS_SORTED = sorted(ALL_SKILLS, key=len, reverse=True)
@@ -157,18 +161,23 @@ class SkillExtractorPipeline:
 
 
 def _normalize(skill_text: str) -> str:
-    """Normalize skill text to canonical form."""
-    for canonical in ALL_SKILLS:
-        if canonical.lower() == skill_text.lower():
-            return canonical
-    return skill_text.strip()
+    """Normalize skill text to canonical form (O(1) lookup)."""
+    return _NORMALIZE_MAP.get(skill_text.lower(), skill_text.strip())
 
+
+_shared_pipeline: SkillExtractorPipeline | None = None
+
+@lru_cache(maxsize=2000)
+def _cached_extract_skills(text: str) -> tuple[str, ...]:
+    global _shared_pipeline
+    if _shared_pipeline is None:
+        _shared_pipeline = SkillExtractorPipeline(use_spacy=False)
+    result = _shared_pipeline.extract(text)
+    return tuple(result["skills"])
 
 def extract_skills_from_text(text: str) -> list[str]:
-    """Simple function wrapper — returns list of unique extracted skills."""
-    pipeline = SkillExtractorPipeline(use_spacy=False)
-    result = pipeline.extract(text)
-    return result["skills"]
+    """Simple function wrapper — returns list of unique extracted skills (cached)."""
+    return list(_cached_extract_skills(text))
 
 
 if __name__ == "__main__":

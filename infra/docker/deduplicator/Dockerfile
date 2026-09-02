@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
     -r /tmp/dedup-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/deduplicator/ ./services/deduplicator/
+COPY services/ ./services/
 
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1

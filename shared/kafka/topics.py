@@ -56,89 +56,89 @@ TOPICS = KafkaTopics()
 TOPIC_CONFIGS = {
     TOPICS.JOB_RAW: {
         "num_partitions": int(__import__("os").getenv("KAFKA_PARTITIONS_RAW", "32")),
-        "replication_factor": 1,            # Single-node dev; raise to 3 in prod
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),            # Single-node dev; raise to 3 in prod
         "retention_ms": 7 * 24 * 60 * 60 * 1000,
         "cleanup_policy": "delete",
         "segment_bytes": 1024 * 1024 * 256,  # 256MB segments for fast compaction
     },
     TOPICS.JOB_CLEANED: {
         "num_partitions": int(__import__("os").getenv("KAFKA_PARTITIONS_CLEANED", "16")),
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 7 * 24 * 60 * 60 * 1000,
         "segment_bytes": 1024 * 1024 * 256,
     },
     TOPICS.JOB_DEDUPLICATED: {
         "num_partitions": int(__import__("os").getenv("KAFKA_PARTITIONS_DEDUP", "16")),
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 7 * 24 * 60 * 60 * 1000,
     },
     TOPICS.JOB_ENRICHED: {
         "num_partitions": int(__import__("os").getenv("KAFKA_PARTITIONS_ENRICHED", "16")),
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 7 * 24 * 60 * 60 * 1000,
     },
     TOPICS.JOB_VERIFIED: {
         "num_partitions": int(__import__("os").getenv("KAFKA_PARTITIONS_VERIFIED", "8")),
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 30 * 24 * 60 * 60 * 1000,
     },
     TOPICS.JOB_REJECTED: {
         "num_partitions": 4,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 14 * 24 * 60 * 60 * 1000,
     },
     TOPICS.NOTIFICATION_EMAIL: {
         "num_partitions": 8,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 24 * 60 * 60 * 1000,
     },
     TOPICS.NOTIFICATION_TELEGRAM: {
         "num_partitions": 4,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 24 * 60 * 60 * 1000,
     },
     TOPICS.NOTIFICATION_WHATSAPP: {
         "num_partitions": 4,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 24 * 60 * 60 * 1000,
     },
     TOPICS.NOTIFICATION_IN_APP: {
         "num_partitions": 8,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 7 * 24 * 60 * 60 * 1000,
     },
     TOPICS.USER_EVENT: {
         "num_partitions": 16,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 90 * 24 * 60 * 60 * 1000,
     },
     TOPICS.SEARCH_QUERY: {
         "num_partitions": 16,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 90 * 24 * 60 * 60 * 1000,
     },
     TOPICS.FEEDBACK_RECEIVED: {
         "num_partitions": 4,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 365 * 24 * 60 * 60 * 1000,
     },
     TOPICS.EMBEDDING_JOB: {
         "num_partitions": 16,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 7 * 24 * 60 * 60 * 1000,
     },
     TOPICS.EMBEDDING_USER: {
         "num_partitions": 4,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 30 * 24 * 60 * 60 * 1000,
     },
     TOPICS.COLLECTION_TRIGGER: {
         "num_partitions": 4,
-        "replication_factor": 1,
+        "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")),
         "retention_ms": 24 * 60 * 60 * 1000,
     },
     # DLQs
-    TOPICS.JOB_RAW_DLQ: {"num_partitions": 4, "replication_factor": 1, "retention_ms": 30 * 24 * 60 * 60 * 1000},
-    TOPICS.JOB_CLEANED_DLQ: {"num_partitions": 4, "replication_factor": 1, "retention_ms": 30 * 24 * 60 * 60 * 1000},
-    TOPICS.JOB_ENRICHED_DLQ: {"num_partitions": 4, "replication_factor": 1, "retention_ms": 30 * 24 * 60 * 60 * 1000},
+    TOPICS.JOB_RAW_DLQ: {"num_partitions": 4, "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")), "retention_ms": 30 * 24 * 60 * 60 * 1000},
+    TOPICS.JOB_CLEANED_DLQ: {"num_partitions": 4, "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")), "retention_ms": 30 * 24 * 60 * 60 * 1000},
+    TOPICS.JOB_ENRICHED_DLQ: {"num_partitions": 4, "replication_factor": int(__import__("os").getenv("KAFKA_REPLICATION_FACTOR", "1")), "retention_ms": 30 * 24 * 60 * 60 * 1000},
 }

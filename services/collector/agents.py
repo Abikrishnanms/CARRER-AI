@@ -81,7 +81,6 @@ BROWSER_HEADERS_POOL = [
     {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
@@ -89,7 +88,6 @@ BROWSER_HEADERS_POOL = [
     {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
                       "(KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-GB,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
@@ -97,7 +95,6 @@ BROWSER_HEADERS_POOL = [
     {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-IN,en;q=0.7",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
@@ -262,7 +259,6 @@ class BaseCollector:
             headers=random.choice(BROWSER_HEADERS_POOL),
             timeout=httpx.Timeout(30.0, connect=10.0),
             follow_redirects=True,
-            http2=True,
         )
         return self
 
@@ -323,6 +319,44 @@ class BaseCollector:
             response.raise_for_status()
             return response
 
+    async def _rate_limited_post(self, url: str, **kwargs: Any) -> httpx.Response:
+        """Rate-limited HTTP POST with semaphore, circuit breaker, adaptive throttling."""
+        if not self.session or not self._semaphore:
+            raise RuntimeError("Collector not started (use async with)")
+
+        if not self.circuit_breaker.allow_request():
+            raise RuntimeError(f"Circuit breaker open for source '{self.source}'")
+
+        self._rotate_headers()
+
+        async with self._semaphore:
+            effective_rate = max(self.effective_rate, 0.1)
+            min_interval = 1.0 / effective_rate
+            now = time.monotonic()
+            wait = (self._last_request_time + min_interval) - now
+            if wait > 0:
+                await asyncio.sleep(wait + random.uniform(0, min_interval * 0.1))
+
+            self._last_request_time = time.monotonic()
+            self._request_count += 1
+
+            t0 = time.perf_counter()
+            response = await self.session.post(url, **kwargs)
+            latency_ms = (time.perf_counter() - t0) * 1000
+
+            if response.status_code in (429, 503):
+                self._rate_multiplier = max(0.1, self._rate_multiplier * 0.5)
+            elif response.status_code < 400 and latency_ms < 1000:
+                self._rate_multiplier = min(2.0, self._rate_multiplier * 1.02)
+
+            if response.status_code >= 500:
+                self.circuit_breaker.record_failure()
+            else:
+                self.circuit_breaker.record_success(latency_ms)
+
+            response.raise_for_status()
+            return response
+
     async def collect(
         self,
         search_terms: list[str] | None = None,
@@ -371,9 +405,8 @@ class AdzunaCollector(BaseCollector):
             return []
 
         terms = search_terms or DEFAULT_SEARCH_TERMS
-        # Scale terms by available request budget; use at least 10 terms
-        terms_to_use = terms[: max(10, min(len(terms), limit // 5))]
-        per_term_limit = max(20, limit // len(terms_to_use))
+        terms_to_use = terms[: max(1, min(len(terms), limit))]
+        per_term_limit = max(10, limit // max(1, len(terms_to_use)))
         run_id = str(uuid4())
 
         # Concurrent term collection
@@ -423,8 +456,8 @@ class AdzunaCollector(BaseCollector):
         limit: int,
     ) -> list[RawJob]:
         jobs: list[RawJob] = []
-        results_per_page = min(50, limit)
-        max_pages = min(5, (limit // results_per_page) + 1)
+        results_per_page = max(10, min(50, limit))
+        max_pages = max(1, min(5, (limit + results_per_page - 1) // results_per_page))
 
         for page in range(1, max_pages + 1):
             if len(jobs) >= limit:
@@ -434,7 +467,6 @@ class AdzunaCollector(BaseCollector):
                 "app_id": self.app_id,
                 "app_key": self.api_key,
                 "results_per_page": results_per_page,
-                "page": page,
                 "what": term,
                 "content-type": "application/json",
                 "sort_by": "date",
@@ -443,14 +475,9 @@ class AdzunaCollector(BaseCollector):
                 params["where"] = location
 
             try:
-                response = await retry_with_backoff(
-                    lambda p=params, pg=page: self._rate_limited_get(
-                        f"{self.BASE_URL}/{self.country}/search/{pg}",
-                        params=p,
-                    ),
-                    max_retries=3,
-                    circuit_breaker=self.circuit_breaker,
-                    status_codes_to_retry={429, 500, 502, 503, 504, 408, 520, 525},
+                response = await self._rate_limited_get(
+                    f"{self.BASE_URL}/{self.country}/search/{page}",
+                    params=params,
                 )
                 data = response.json()
 
@@ -725,19 +752,21 @@ class LeverCollector(BaseCollector):
 # ─── Workday Collector (ATS search via JSON API) ──────────────────────────────
 
 class WorkdayCollector(BaseCollector):
-    """Workday ATS — several major Indian corporates publish here."""
+    """Workday ATS API — scrapes real job postings from enterprise Workday portals."""
 
     source = CollectionSource.WORKDAY
     DEFAULT_TENANTS = [
-        ("tcs", "https://ibegin.tcs.com/"),
-        ("infosys", "https://career.infosys.com/"),
-        ("walmart", "https://one.walmart.com/"),
+        ("nvidia", "https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/jobs"),
+        ("adobe", "https://adobe.wd5.myworkdayjobs.com/wday/cxs/adobe/external/jobs"),
+        ("salesforce", "https://salesforce.wd1.myworkdayjobs.com/wday/cxs/salesforce/External_Career_Site/jobs"),
+        ("workday", "https://workday.wd5.myworkdayjobs.com/wday/cxs/workday/Workday/jobs"),
+        ("dell", "https://dell.wd1.myworkdayjobs.com/wday/cxs/dell/External/jobs"),
     ]
 
     def __init__(self) -> None:
         super().__init__(
-            rate_limit_per_second=float(os.getenv("WORKDAY_RATE", "6")),
-            max_concurrent_requests=int(os.getenv("WORKDAY_CONCURRENT", "15")),
+            rate_limit_per_second=float(os.getenv("WORKDAY_RATE", "4")),
+            max_concurrent_requests=int(os.getenv("WORKDAY_CONCURRENT", "10")),
         )
 
     async def collect(
@@ -746,41 +775,61 @@ class WorkdayCollector(BaseCollector):
         location: str | None = None,
         limit: int = 100,
     ) -> list[RawJob]:
-        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:10]
+        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:5]
         run_id = str(uuid4())
-        jobs: list[RawJob] = []
-        # Workday is fragile; seed synthetic structured records so pipeline
-        # still gains volume if real API is blocked. Real integration done via
-        # the `raw_data` envelope with `is_synthetic=True` flag.
-        for idx in range(min(limit, 50)):
-            term = random.choice(terms)
-            city = random.choice(["Bengaluru", "Pune", "Hyderabad", "Mumbai", "Noida", "Remote"])
-            company = random.choice(["TCS", "Infosys", "Wipro", "Accenture", "Cognizant"])
-            try:
-                jobs.append(RawJob(
-                    source=self.source,
-                    source_job_id=f"wd-{run_id[:8]}-{idx}",
-                    source_url=f"https://workday.example.com/job/{idx}",
-                    collection_run_id=run_id,
-                    title=f"{random.choice(['Senior', 'Lead', 'Staff', 'Principal', '']).strip()} {term}".strip(),
-                    description=(
-                        f"Opportunity for a {term} professional to join our growing team in {city}. "
-                        f"Responsibilities include design, implementation, and collaboration with "
-                        f"cross-functional teams. Required skills: {term}, Python, SQL, microservices."
-                    ),
-                    company_name=company,
-                    location_raw=f"{city}, India",
-                    salary_raw=f"₹{random.randint(6, 35)},00,000 - ₹{random.randint(10, 50)},00,000",
-                    job_type_raw="Full-time",
-                    experience_raw=f"{random.choice(['0-2', '2-5', '5-8', '8-12', '10+'])} years",
-                    apply_url=f"https://workday.example.com/job/{idx}/apply",
-                    posted_date_raw=datetime.utcnow().isoformat(),
-                    raw_data={"is_synthetic": True, "tenant": "simulated", "city": city},
-                ))
-            except Exception:
-                continue
-        logger.info(f"Workday: generated {len(jobs)} structured job seeds")
-        return jobs[:limit]
+        sem = asyncio.Semaphore(4)
+
+        async def _fetch_tenant(company_name: str, endpoint: str, term: str) -> list[RawJob]:
+            async with sem:
+                try:
+                    payload = {"appliedFacets": {}, "limit": min(20, limit), "offset": 0, "searchText": term}
+                    resp = await self._rate_limited_post(endpoint, json=payload)
+                    data = resp.json()
+                    jobs: list[RawJob] = []
+                    postings = data.get("jobPostings", [])
+                    base_domain = "/".join(endpoint.split("/")[:3])
+                    parts = endpoint.split("/cxs/")[1].split("/jobs")[0].split("/") if "/cxs/" in endpoint else ["", ""]
+                    tenant_name = parts[0]
+                    board_slug = parts[1] if len(parts) > 1 else ""
+
+                    for p in postings:
+                        external_path = p.get("externalPath", "")
+                        job_id = external_path.split("/")[-1] if external_path else str(uuid4())
+                        apply_url = f"{base_domain}/en-US/{tenant_name}/{board_slug}{external_path}" if external_path else endpoint
+                        title = p.get("title", "")
+                        loc_text = p.get("locationsText", "")
+                        posted = p.get("postedOn", "")
+
+                        jobs.append(RawJob(
+                            source=self.source,
+                            source_job_id=f"wd-{company_name}-{job_id}",
+                            source_url=apply_url,
+                            collection_run_id=run_id,
+                            title=title,
+                            description=f"Position: {title} at {company_name.title()}. Location: {loc_text}. Posted: {posted}.",
+                            company_name=company_name.title(),
+                            location_raw=loc_text or location,
+                            apply_url=apply_url,
+                            posted_date_raw=posted,
+                            raw_data=p,
+                        ))
+                    return jobs
+                except Exception as e:
+                    logger.debug(f"Workday {company_name} '{term}' failed: {e}")
+                    return []
+
+        tasks = []
+        for name, url in self.DEFAULT_TENANTS:
+            for term in terms:
+                tasks.append(_fetch_tenant(name, url, term))
+
+        results = await asyncio.gather(*tasks)
+        all_jobs: list[RawJob] = []
+        for res in results:
+            all_jobs.extend(res)
+            if len(all_jobs) >= limit:
+                break
+        return all_jobs[:limit]
 
 
 # ─── Indeed Scraper (concurrent terms + pagination) ───────────────────────────
@@ -883,7 +932,7 @@ class IndeedScraper(BaseCollector):
 # ─── Naukri Scraper (headless-friendly requests) ──────────────────────────────
 
 class NaukriScraper(BaseCollector):
-    """Naukri.com India — major Indian job board."""
+    """Naukri.com India — scrapes live Naukri Search API & Tech feeds."""
 
     source = CollectionSource.NAUKRI
 
@@ -899,72 +948,68 @@ class NaukriScraper(BaseCollector):
         location: str | None = None,
         limit: int = 100,
     ) -> list[RawJob]:
-        if not os.getenv("NAUKRI_SCRAPING_ENABLED", "true").lower() == "true":
-            return []
-        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:10]
+        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:8]
         run_id = str(uuid4())
-        cities = [
-            "Bengaluru/Bangalore", "Pune", "Hyderabad/Secunderabad", "Mumbai (All Areas)",
-            "Noida/Greater Noida", "Gurgaon/Gurugram", "Chennai", "Kolkata", "Ahmedabad",
-            "Remote", "Hybrid", "Work From Home",
-        ]
         jobs: list[RawJob] = []
-        # Naukri requires complex JS rendering for direct scraping; produce
-        # high-quality structured seeds so downstream pipeline still sees
-        # realistic Naukri-source volume through the collection API.
-        for _ in range(min(limit, 80)):
-            term = random.choice(terms).title()
-            city = random.choice(cities)
-            companies = [
-                "TCS", "Infosys", "Wipro", "HCL", "Tech Mahindra", "L&T Infotech",
-                "Accenture", "Deloitte", "Cognizant", "Capgemini", "IBM India",
-                "Flipkart", "Paytm", "Swiggy", "Zomato", "OLA", "PhonePe", "Meesho",
-                "BYJUS", "Unacademy", "Razorpay", "InMobi", "Freshworks", "Zoho",
-            ]
-            company = random.choice(companies)
-            exp_min = random.choice([0, 1, 2, 3, 4, 5, 7, 10])
-            exp_max = exp_min + random.choice([1, 2, 3, 5])
-            sal_lakh_low = random.randint(3, 20)
-            sal_lakh_high = sal_lakh_low + random.randint(2, 15)
-            try:
-                jobs.append(RawJob(
-                    source=self.source,
-                    source_job_id=f"nk-{run_id[:8]}-{len(jobs)}",
-                    source_url=f"https://www.naukri.com/job-listings-{len(jobs)}",
-                    collection_run_id=run_id,
-                    title=f"{random.choice(['Junior', '', 'Senior', 'Lead', 'Specialist']).strip()} {term}".strip(),
-                    description=(
-                        f"Job opening for {term}. Responsible for developing scalable solutions "
-                        f"using {term.split()[0]} and related technologies. Strong fundamentals "
-                        f"in data structures, algorithms, and system design preferred. "
-                        f"Location: {city}. Salary: {sal_lakh_low}-{sal_lakh_high} LPA INR. "
-                        f"Experience: {exp_min}-{exp_max} years."
-                    ),
-                    company_name=company,
-                    location_raw=city,
-                    salary_raw=f"₹{sal_lakh_low},{sal_lakh_high} PA - Not Disclosed".replace(",", " - ₹"),
-                    job_type_raw="Permanent, Full-time",
-                    experience_raw=f"{exp_min} - {exp_max} Yrs",
-                    apply_url=f"https://www.naukri.com/job-listings-{len(jobs)}#apply",
-                    posted_date_raw=datetime.utcnow().isoformat(),
-                    skills_raw=random.sample(
-                        ["Python", "SQL", "AWS", "Django", "REST", "Docker", "Kubernetes",
-                         "React", "JavaScript", "TypeScript", "Git", "Linux", "Redis",
-                         "MongoDB", "PostgreSQL"], k=random.randint(3, 7),
-                    ),
-                    raw_data={"is_seeded": True, "city_raw": city, "lpa_low": sal_lakh_low,
-                              "lpa_high": sal_lakh_high},
-                ))
-            except Exception:
-                continue
-        logger.info(f"Naukri: produced {len(jobs)} structured records")
+        sem = asyncio.Semaphore(3)
+
+        async def _fetch_naukri(term: str) -> list[RawJob]:
+            async with sem:
+                try:
+                    url = "https://www.naukri.com/jobapi/v3/search"
+                    params = {"noOfResults": min(20, limit), "keyword": term, "searchType": "responsiveSearch"}
+                    if location:
+                        params["location"] = location
+                    headers = {
+                        "appid": "109",
+                        "systemid": "NCI",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    }
+                    resp = await self._rate_limited_get(url, params=params, headers=headers)
+                    data = resp.json()
+                    res_jobs: list[RawJob] = []
+                    for item in data.get("jobDetails", []):
+                        job_id = str(item.get("jobId", uuid4()))
+                        title = item.get("title", "")
+                        comp = item.get("companyName", "Unknown")
+                        jd_url = item.get("jdURL", "")
+                        apply_url = f"https://www.naukri.com{jd_url}" if jd_url and not jd_url.startswith("http") else (jd_url or f"https://www.naukri.com/job-listings-{job_id}")
+                        loc = item.get("place", "") or item.get("location", "")
+                        desc = item.get("jobDescription", "")
+                        sal = item.get("salary", "")
+                        
+                        res_jobs.append(RawJob(
+                            source=self.source,
+                            source_job_id=f"nk-{job_id}",
+                            source_url=apply_url,
+                            collection_run_id=run_id,
+                            title=title,
+                            description=desc or f"{title} role at {comp}. Location: {loc}.",
+                            company_name=comp,
+                            location_raw=loc,
+                            salary_raw=sal if sal != "Not Disclosed" else None,
+                            apply_url=apply_url,
+                            posted_date_raw=str(item.get("createdDate", "")),
+                            raw_data=item,
+                        ))
+                    return res_jobs
+                except Exception as e:
+                    logger.debug(f"Naukri API '{term}' failed: {e}")
+                    return []
+
+        results = await asyncio.gather(*[_fetch_naukri(t) for t in terms])
+        for r in results:
+            jobs.extend(r)
+            if len(jobs) >= limit:
+                break
+
         return jobs[:limit]
 
 
-# ─── LinkedIn (structured volume seed) ────────────────────────────────────────
+# ─── LinkedIn Collector ───────────────────────────────────────────────────────
 
 class LinkedInCollector(BaseCollector):
-    """LinkedIn Jobs — produces high-fidelity structured records via metadata."""
+    """LinkedIn Jobs — scrapes live public job postings via guest API."""
 
     source = CollectionSource.LINKEDIN
 
@@ -977,49 +1022,61 @@ class LinkedInCollector(BaseCollector):
         location: str | None = None,
         limit: int = 100,
     ) -> list[RawJob]:
-        if not os.getenv("LINKEDIN_SEED_ENABLED", "true").lower() == "true":
-            return []
-        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:15]
+        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:6]
         run_id = str(uuid4())
+        loc = location or "India"
         jobs: list[RawJob] = []
-        companies = [
-            "Google", "Microsoft", "Amazon", "Meta", "Apple", "Netflix", "Adobe",
-            "Intel", "NVIDIA", "Oracle", "Salesforce", "ServiceNow", "VMware",
-            "Uber", "Airbnb", "Pinterest", "LinkedIn", "Tesla", "SAP", "Cisco",
-        ]
-        for _ in range(min(limit, 120)):
-            term = random.choice(terms)
-            company = random.choice(companies)
-            city = random.choice([
-                "Bengaluru, Karnataka", "Pune, Maharashtra", "Hyderabad, Telangana",
-                "Mumbai, Maharashtra", "Noida, Uttar Pradesh", "Gurugram, Haryana",
-                "Chennai, Tamil Nadu", "Remote", "India",
-            ])
-            try:
-                jobs.append(RawJob(
-                    source=self.source,
-                    source_job_id=f"li-{run_id[:8]}-{len(jobs)}",
-                    source_url=f"https://www.linkedin.com/jobs/view/{len(jobs)}",
-                    collection_run_id=run_id,
-                    title=f"{random.choice(['Associate', '', 'Senior', 'Staff']).strip()} {term}".strip(),
-                    description=(
-                        f"At {company}, we hire the best {term}s. Come build with us! "
-                        f"You will work with top talent across {city} and globally. "
-                        f"Tech stack: Python, Go, React, AWS, Kubernetes, Terraform. "
-                        f"Preferred: {random.randint(2, 8)}+ years experience."
-                    ),
-                    company_name=company,
-                    location_raw=city,
-                    salary_raw=None,
-                    job_type_raw="Full-time",
-                    experience_raw=f"{random.randint(1, 12)} years",
-                    apply_url=f"https://www.linkedin.com/jobs/view/{len(jobs)}/apply",
-                    posted_date_raw=datetime.utcnow().isoformat(),
-                    raw_data={"is_seeded": True, "platform": "linkedin"},
-                ))
-            except Exception:
-                continue
-        logger.info(f"LinkedIn: produced {len(jobs)} records")
+        sem = asyncio.Semaphore(2)
+
+        async def _scrape_linkedin(term: str) -> list[RawJob]:
+            async with sem:
+                try:
+                    url = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+                    params = {"keywords": term, "location": loc, "start": 0}
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                    resp = await self._rate_limited_get(url, params=params, headers=headers)
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    cards = soup.find_all("li")
+                    res: list[RawJob] = []
+                    for card in cards:
+                        title_el = card.find(["h3", "h2"], class_=lambda x: x and ("title" in x or "heading" in x))
+                        comp_el = card.find(["h4", "a"], class_=lambda x: x and ("subtitle" in x or "company" in x))
+                        loc_el = card.find("span", class_=lambda x: x and "location" in x)
+                        link_el = card.find("a", class_=lambda x: x and "link" in x)
+
+                        if not title_el:
+                            continue
+                        title = title_el.get_text(strip=True)
+                        company = comp_el.get_text(strip=True) if comp_el else "Unknown"
+                        location_str = loc_el.get_text(strip=True) if loc_el else loc
+                        apply_url = link_el.get("href", "").split("?")[0] if link_el else ""
+                        job_id = apply_url.split("-")[-1] if apply_url else str(uuid4())
+
+                        res.append(RawJob(
+                            source=self.source,
+                            source_job_id=f"li-{job_id}",
+                            source_url=apply_url or f"https://www.linkedin.com/jobs/view/{job_id}",
+                            collection_run_id=run_id,
+                            title=title,
+                            description=f"{title} position at {company}. Location: {location_str}.",
+                            company_name=company,
+                            location_raw=location_str,
+                            apply_url=apply_url or f"https://www.linkedin.com/jobs/view/{job_id}",
+                            posted_date_raw=datetime.utcnow().isoformat(),
+                            raw_data={"platform": "linkedin_guest"},
+                        ))
+                    return res
+                except Exception as e:
+                    logger.debug(f"LinkedIn '{term}' guest scrape failed: {e}")
+                    return []
+
+        results = await asyncio.gather(*[_scrape_linkedin(t) for t in terms])
+        for r in results:
+            jobs.extend(r)
+            if len(jobs) >= limit:
+                break
         return jobs[:limit]
 
 
@@ -1142,12 +1199,17 @@ class RSSFeedCollector(BaseCollector):
 # ─── Government Jobs Collector (India) ────────────────────────────────────────
 
 class GovernmentJobsCollector(BaseCollector):
-    """Seeds Indian government-style jobs (Sarkari Naukri) for public sector volume."""
+    """Aggregates authentic Indian public sector job postings from live government RSS & portals."""
 
     source = CollectionSource.GOVERNMENT
+    GOV_FEEDS = [
+        "https://www.sarkariresult.com/rss/latest-jobs.xml",
+        "https://sarkariexam.com/feed",
+        "https://www.freejobalert.com/feed/",
+    ]
 
     def __init__(self) -> None:
-        super().__init__(rate_limit_per_second=1, max_concurrent_requests=2)
+        super().__init__(rate_limit_per_second=2, max_concurrent_requests=4)
 
     async def collect(
         self,
@@ -1155,59 +1217,66 @@ class GovernmentJobsCollector(BaseCollector):
         location: str | None = None,
         limit: int = 100,
     ) -> list[RawJob]:
+        try:
+            import feedparser
+        except ImportError:
+            logger.warning("feedparser not installed — skipping Government collector")
+            return []
+
         run_id = str(uuid4())
-        roles = [
-            "Software Engineer", "System Analyst", "Database Administrator",
-            "Network Engineer", "IT Officer", "Data Entry Operator",
-            "Junior Engineer", "Assistant Programmer", "Technical Officer",
-            "Scientist-B", "Project Associate", "Research Fellow",
-        ]
-        orgs = [
-            "ISRO", "DRDO", "BHEL", "ONGC", "NTPC", "Railways", "Banking (IBPS)",
-            "UPSC", "SSC", "Defence", "Indian Post", "CDAC", "NIC", "BEL", "HAL",
-        ]
-        states = ["All India", "Delhi", "Maharashtra", "Karnataka", "Tamil Nadu",
-                  "Telangana", "Gujarat", "West Bengal", "Uttar Pradesh", "Kerala"]
         jobs: list[RawJob] = []
-        for _ in range(min(limit, 60)):
-            role = random.choice(roles)
-            org = random.choice(orgs)
-            state = random.choice(states)
+
+        async def _parse_gov_feed(url: str) -> list[RawJob]:
             try:
-                jobs.append(RawJob(
-                    source=self.source,
-                    source_job_id=f"gov-{run_id[:8]}-{len(jobs)}",
-                    source_url=f"https://sarkari.example.com/{org.lower()}/{len(jobs)}",
-                    collection_run_id=run_id,
-                    title=f"{role} — {org}",
-                    description=(
-                        f"Recruitment notification for the post of {role} at {org}. "
-                        f"Location: {state}. Qualification: B.Tech/B.E/MCA/M.Sc in relevant "
-                        f"discipline from a recognized university. Last date to apply: "
-                        f"{(datetime.utcnow().fromtimestamp(datetime.utcnow().timestamp() + 86400 * random.randint(10, 45))).strftime('%d %b %Y')}. "
-                        f"Salary: Pay Level {random.randint(6, 12)}."
-                    ),
-                    company_name=f"Government of India — {org}",
-                    location_raw=f"{state}, India",
-                    salary_raw=f"Level {random.randint(6, 12)} Pay Matrix",
-                    job_type_raw="Government (Permanent)",
-                    experience_raw=f"{random.choice(['0', '1-3', '3-5', '5+'])} years",
-                    apply_url=f"https://sarkari.example.com/{org.lower()}/{len(jobs)}#apply",
-                    posted_date_raw=datetime.utcnow().isoformat(),
-                    raw_data={"is_seeded": True, "sector": "government", "org": org},
-                ))
-            except Exception:
-                continue
-        logger.info(f"Government: produced {len(jobs)} public-sector jobs")
+                resp = await self._rate_limited_get(url)
+                feed = feedparser.parse(resp.text)
+                res: list[RawJob] = []
+                for entry in feed.entries[:25]:
+                    title = (entry.get("title", "") or "").strip()
+                    desc = entry.get("summary", entry.get("content", [{}])[0].get("value", ""))
+                    link = entry.get("link", "")
+                    
+                    org = "Government of India"
+                    for kw in ["ISRO", "DRDO", "BHEL", "ONGC", "NTPC", "Railway", "UPSC", "SSC", "IBPS", "Bank", "Police", "Army", "Navy", "Air Force"]:
+                        if kw.lower() in title.lower():
+                            org = f"Government of India — {kw}"
+                            break
+
+                    res.append(RawJob(
+                        source=self.source,
+                        source_job_id=self._generate_fingerprint(link, title),
+                        source_url=link,
+                        collection_run_id=run_id,
+                        title=title,
+                        description=desc or f"Public sector recruitment notice: {title}.",
+                        company_name=org,
+                        location_raw=location or "India",
+                        job_type_raw="Government (Public Sector)",
+                        apply_url=link,
+                        posted_date_raw=entry.get("published", datetime.utcnow().isoformat()),
+                        raw_data={"sector": "government", "source_feed": url},
+                    ))
+                return res
+            except Exception as e:
+                logger.debug(f"Government feed skip {url}: {e}")
+                return []
+
+        results = await asyncio.gather(*[_parse_gov_feed(u) for u in self.GOV_FEEDS])
+        for r in results:
+            jobs.extend(r)
+            if len(jobs) >= limit:
+                break
         return jobs[:limit]
 
 
-# ─── Company Careers (Lever-style) + AngelList (RSS) ─────────────────────────
+# ─── Company Careers Collector ─────────────────────────────────────────────────
 
 class CompanyCareersCollector(BaseCollector):
-    """Aggregates direct company career pages via structured seed + RSS fallback."""
+    """Aggregates direct company career pages using open ATS public APIs (SmartRecruiters & Ashby)."""
 
     source = CollectionSource.COMPANY_CAREERS
+    SMARTRECRUITERS_COMPANIES = ["visa", "square", "ubisoft", "bosch", "mcdonalds", "sega", "spotify", "atlassian"]
+    ASHBY_COMPANIES = ["linear", "ramp", "openai", "retool", "vanta", "duolingo", "notion", "figma"]
 
     def __init__(self) -> None:
         super().__init__(rate_limit_per_second=6, max_concurrent_requests=15)
@@ -1219,48 +1288,204 @@ class CompanyCareersCollector(BaseCollector):
         limit: int = 100,
     ) -> list[RawJob]:
         run_id = str(uuid4())
-        terms = (search_terms or DEFAULT_SEARCH_TERMS)[:12]
-        companies = [
-            "Flipkart", "Myntra", "PhonePe", "Swiggy", "Zomato", "Meesho",
-            "Razorpay", "CRED", "Groww", "Upstox", "InMobi", "ShareChat",
-            "Reliance Jio", "Bharti Airtel", "PolicyBazaar", "1mg", "PharmEasy",
-            "Freshworks", "Zoho", "Kissflow", "Gojek", "Tokopedia", "Sea",
-            "Grab", "GoTo", "Lazada",
-        ]
         jobs: list[RawJob] = []
-        for _ in range(min(limit, 100)):
-            term = random.choice(terms)
-            company = random.choice(companies)
-            city = random.choice([
-                "Bengaluru", "Pune", "Hyderabad", "Mumbai", "Noida", "Gurugram",
-                "Chennai", "Kolkata", "Remote",
-            ])
+        sem = asyncio.Semaphore(10)
+
+        async def _fetch_smartrecruiters(slug: str) -> list[RawJob]:
+            async with sem:
+                try:
+                    url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
+                    resp = await self._rate_limited_get(url)
+                    data = resp.json()
+                    res: list[RawJob] = []
+                    for item in data.get("content", [])[:15]:
+                        name = item.get("name", "")
+                        job_id = str(item.get("id", uuid4()))
+                        loc_info = item.get("location", {}) or {}
+                        city = loc_info.get("city", "")
+                        country = loc_info.get("country", "")
+                        loc_str = f"{city}, {country}".strip(", ")
+                        apply_url = f"https://jobs.smartrecruiters.com/{slug}/{job_id}"
+                        
+                        res.append(RawJob(
+                            source=self.source,
+                            source_job_id=f"sr-{slug}-{job_id}",
+                            source_url=apply_url,
+                            collection_run_id=run_id,
+                            title=name,
+                            description=f"Direct posting from {slug.title()} career portal for {name}.",
+                            company_name=slug.title(),
+                            location_raw=loc_str or location,
+                            apply_url=apply_url,
+                            posted_date_raw=item.get("releasedDate", datetime.utcnow().isoformat()),
+                            raw_data=item,
+                        ))
+                    return res
+                except Exception as e:
+                    logger.debug(f"SmartRecruiters {slug} failed: {e}")
+                    return []
+
+        async def _fetch_ashby(slug: str) -> list[RawJob]:
+            async with sem:
+                try:
+                    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+                    resp = await self._rate_limited_get(url)
+                    data = resp.json()
+                    res: list[RawJob] = []
+                    for item in data.get("jobs", [])[:15]:
+                        title = item.get("title", "")
+                        job_id = str(item.get("id", uuid4()))
+                        apply_url = item.get("jobUrl") or f"https://jobs.ashbyhq.com/{slug}/{job_id}"
+                        loc_str = item.get("location", "")
+                        
+                        res.append(RawJob(
+                            source=self.source,
+                            source_job_id=f"ashby-{slug}-{job_id}",
+                            source_url=apply_url,
+                            collection_run_id=run_id,
+                            title=title,
+                            description=f"Direct career posting from {slug.title()} for {title}.",
+                            company_name=slug.title(),
+                            location_raw=loc_str or location,
+                            apply_url=apply_url,
+                            posted_date_raw=datetime.utcnow().isoformat(),
+                            raw_data=item,
+                        ))
+                    return res
+                except Exception as e:
+                    logger.debug(f"Ashby {slug} failed: {e}")
+                    return []
+
+        tasks = [_fetch_smartrecruiters(s) for s in self.SMARTRECRUITERS_COMPANIES] + \
+                [_fetch_ashby(a) for a in self.ASHBY_COMPANIES]
+
+        results = await asyncio.gather(*tasks)
+        for r in results:
+            jobs.extend(r)
+            if len(jobs) >= limit:
+                break
+        return jobs[:limit]
+
+
+# ─── Remotive Collector (API) ─────────────────────────────────────────────────
+
+class RemotiveCollector(BaseCollector):
+    """Remotive.com remote jobs API (no auth required)."""
+
+    source = CollectionSource.REMOTIVE
+
+    def __init__(self) -> None:
+        super().__init__(rate_limit_per_second=2, max_concurrent_requests=5)
+
+    async def collect(
+        self,
+        search_terms: list[str] | None = None,
+        location: str | None = None,
+        limit: int = 100,
+    ) -> list[RawJob]:
+        run_id = str(uuid4())
+        url = "https://remotive.com/api/remote-jobs"
+        params = {"limit": limit}
+        if search_terms:
+            params["search"] = search_terms[0]
+            
+        try:
+            resp = await retry_with_backoff(
+                lambda: self._rate_limited_get(url, params=params),
+                max_retries=3,
+                circuit_breaker=self.circuit_breaker
+            )
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"Remotive: Failed to fetch API: {e}")
+            return []
+
+        jobs: list[RawJob] = []
+        for item in data.get("jobs", []):
+            if len(jobs) >= limit:
+                break
             try:
                 jobs.append(RawJob(
                     source=self.source,
-                    source_job_id=f"cc-{run_id[:8]}-{len(jobs)}",
-                    source_url=f"https://careers.{company.lower().replace(' ', '')}.com/jobs/{len(jobs)}",
+                    source_job_id=str(item.get("id")),
+                    source_url=item.get("url", ""),
                     collection_run_id=run_id,
-                    title=f"{random.choice(['', 'Senior', 'Lead', 'Manager']).strip()} {term}".strip(),
-                    description=(
-                        f"Direct hire from {company} careers page. Role: {term}. "
-                        f"Work alongside industry experts at one of India's fastest growing "
-                        f"companies. Office: {city} with flexible hybrid policy. "
-                        f"Salary: Best in industry. Perks: equity, health insurance, L&D budget."
-                    ),
-                    company_name=company,
-                    location_raw=f"{city}, India",
-                    salary_raw="Best in industry — disclosed on offer",
-                    job_type_raw="Full-time",
-                    experience_raw=f"{random.randint(1, 10)} years",
-                    apply_url=f"https://careers.{company.lower().replace(' ', '')}.com/jobs/{len(jobs)}#apply",
-                    posted_date_raw=datetime.utcnow().isoformat(),
-                    raw_data={"is_seeded": True, "source_channel": "direct_careers"},
+                    title=item.get("title", ""),
+                    description=item.get("description", ""),
+                    company_name=item.get("company_name", "Unknown"),
+                    location_raw=item.get("candidate_required_location", ""),
+                    salary_raw=item.get("salary", ""),
+                    job_type_raw=item.get("job_type", ""),
+                    apply_url=item.get("url", ""),
+                    posted_date_raw=item.get("publication_date", ""),
+                    raw_data=item,
                 ))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Remotive parse error: {e}")
+                
+        logger.info(f"Remotive: collected {len(jobs)} real jobs")
+        return jobs
+
+
+# ─── Arbeitnow Collector (API) ────────────────────────────────────────────────
+
+class ArbeitnowCollector(BaseCollector):
+    """Arbeitnow job board API (remote and European jobs, no auth required)."""
+
+    source = CollectionSource.ARBEITNOW
+
+    def __init__(self) -> None:
+        super().__init__(rate_limit_per_second=2, max_concurrent_requests=5)
+
+    async def collect(
+        self,
+        search_terms: list[str] | None = None,
+        location: str | None = None,
+        limit: int = 100,
+    ) -> list[RawJob]:
+        run_id = str(uuid4())
+        url = "https://www.arbeitnow.com/api/job-board-api"
+        
+        try:
+            resp = await retry_with_backoff(
+                lambda: self._rate_limited_get(url),
+                max_retries=3,
+                circuit_breaker=self.circuit_breaker
+            )
+            data = resp.json()
+        except Exception as e:
+            logger.error(f"Arbeitnow: Failed to fetch API: {e}")
+            return []
+
+        jobs: list[RawJob] = []
+        for item in data.get("data", []):
+            if len(jobs) >= limit:
+                break
+            # Arbeitnow does not support search via API easily; filter manually if needed
+            title = (item.get("title", "") or "").lower()
+            if search_terms and not any(t.lower() in title for t in search_terms[:5]):
                 continue
-        logger.info(f"CompanyCareers: produced {len(jobs)} direct-company postings")
-        return jobs[:limit]
+                
+            try:
+                jobs.append(RawJob(
+                    source=self.source,
+                    source_job_id=item.get("slug", str(uuid4())),
+                    source_url=item.get("url", ""),
+                    collection_run_id=run_id,
+                    title=item.get("title", ""),
+                    description=item.get("description", ""),
+                    company_name=item.get("company_name", "Unknown"),
+                    location_raw=item.get("location", ""),
+                    job_type_raw=", ".join(item.get("job_types", [])),
+                    apply_url=item.get("url", ""),
+                    posted_date_raw=str(item.get("created_at", "")),
+                    raw_data=item,
+                ))
+            except Exception as e:
+                logger.debug(f"Arbeitnow parse error: {e}")
+
+        logger.info(f"Arbeitnow: collected {len(jobs)} real jobs")
+        return jobs
 
 
 # ─── Manual / Direct-upload collector (empty, present for registry) ────────────
@@ -1287,6 +1512,8 @@ COLLECTOR_REGISTRY: dict[str, type[BaseCollector]] = {
     CollectionSource.RSS: RSSFeedCollector,
     CollectionSource.GOVERNMENT: GovernmentJobsCollector,
     CollectionSource.COMPANY_CAREERS: CompanyCareersCollector,
+    CollectionSource.REMOTIVE: RemotiveCollector,
+    CollectionSource.ARBEITNOW: ArbeitnowCollector,
     CollectionSource.MANUAL: ManualCollector,
 }
 

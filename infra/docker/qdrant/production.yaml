@@ -1,0 +1,27 @@
+# ── Qdrant Server Configuration ───────────────────────────────────────────────
+# Production configuration for Qdrant vector database
+
+storage:
+  # Where to persist vector data
+  storage_path: /qdrant/storage
+
+  # Snapshots directory
+  snapshots_path: /qdrant/snapshots
+
+  # Allow non-blocking persistence
+  performance:
+    max_search_threads: 4
+
+service:
+  host: 0.0.0.0
+  http_port: 6333
+  grpc_port: 6334
+
+  # Enable CORS for local dev
+  enable_cors: true
+  cors_allow_origin: "*"
+
+  # Request limits
+  max_request_size_mb: 32
+
+log_level: INFO

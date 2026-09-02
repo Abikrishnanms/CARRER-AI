@@ -9,12 +9,13 @@ WORKDIR /app
 
 COPY services/embedder/requirements.txt /tmp/embedder-requirements.txt
 COPY shared/requirements.txt /tmp/shared-requirements.txt
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir \
     -r /tmp/shared-requirements.txt \
     -r /tmp/embedder-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/embedder/ ./services/embedder/
+COPY services/ ./services/
 
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1

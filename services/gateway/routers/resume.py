@@ -6,7 +6,7 @@ Supports file upload (PDF/DOCX/TXT), profile parsing, intelligent matching, and 
 from __future__ import annotations
 
 import logging, uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -183,7 +183,7 @@ async def save_user_profile(
     """Save or update authenticated candidate profile."""
     user_id = str(current_user.get("_id") or current_user.get("id"))
     profile_data["user_id"] = user_id
-    profile_data["updated_at"] = datetime.utcnow()
+    profile_data["updated_at"] = datetime.now(timezone.utc)
 
     await db.candidate_profiles.update_one(
         {"user_id": user_id},

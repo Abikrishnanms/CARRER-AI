@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
     -r /tmp/notifier-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/notifier/ ./services/notifier/
+COPY services/ ./services/
 
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1

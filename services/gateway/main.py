@@ -43,6 +43,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    from shared.database.session import close_client
+    await close_client()
     logger.info("🛑 Shutting down API Gateway")
 
 
@@ -90,7 +92,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ] + [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?" if os.getenv("APP_ENV") != "production" else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

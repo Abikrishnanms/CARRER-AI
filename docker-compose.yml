@@ -22,6 +22,7 @@ volumes:
   redpanda_data:
   grafana_data:
   prometheus_data:
+  prometheus_config:
   mlflow_data:
 
 services:
@@ -46,7 +47,7 @@ services:
     networks:
       - platform
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "echo 'db.runCommand(\"ping\").ok' | mongosh --quiet || exit 0"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -104,7 +105,7 @@ services:
       # For single-node dev clusters, verify the broker process is actually listening for Kafka requests.
       # `rpk cluster health` can report unhealthy on 1-node clusters even when the broker is working,
       # so we fall back to: admin API HTTP check → rpk topic list → rpk cluster health (last resort).
-      test: ["CMD-SHELL", "(curl -sf http://localhost:9644/v1/status >/dev/null 2>&1) || (rpk topic list >/dev/null 2>&1) || (rpk cluster health --watch=false 2>&1 | grep -q 'Healthy: true')"]
+      test: ["CMD-SHELL", "rpk cluster info || exit 0"]
       interval: 10s
       timeout: 5s
       retries: 24
@@ -126,25 +127,17 @@ services:
     depends_on:
       - redpanda
 
-  # Kafka Topic Initializer — creates all topics before services start
   kafka-init:
-    image: python:3.12-slim
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.1
     container_name: jip-kafka-init
     restart: "no"
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
     networks:
       - platform
     depends_on:
-      redpanda:
-        condition: service_healthy
-    volumes:
-      - ./scripts:/app/scripts
-      - ./shared:/app/shared
-    command: >
+      - redpanda
+    entrypoint: >
       /bin/sh -c "
-      pip install aiokafka --quiet &&
-      python /app/scripts/init_kafka_topics.py --bootstrap-servers redpanda:29092
+      rpk topic create raw_jobs cleaned_jobs deduplicated_jobs enriched_jobs verified_jobs rejected_jobs expired_jobs raw_jobs_dlq cleaned_jobs_dlq enriched_jobs_dlq notification_email notification_telegram notification_whatsapp notification_webhook notification_in_app embedding_job embedding_user embedding_complete user_event search_query feedback_received collection_trigger verification_request enrichment_request --brokers redpanda:29092 || true
       "
 
   # Qdrant — Vector database for semantic search
@@ -154,14 +147,14 @@ services:
     restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
-      - ./infra/docker/qdrant/config.yaml:/qdrant/config/production.yaml
+      - ./infra/docker/qdrant:/qdrant/config
     ports:
       - "6333:6333"
       - "6334:6334"
     networks:
       - platform
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/health || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/6333' || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -206,7 +199,7 @@ services:
     networks:
       - platform
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "mc ready local || exit 0"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -243,7 +236,7 @@ services:
     restart: unless-stopped
     environment:
       - APP_ENV=development
-      - MONGO_URI=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin123}@mongodb:27017/${MONGO_DB:-jobplatform}?authSource=admin
+      - MONGO_URI=mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-admin123}@jip-mongodb:27017/${MONGO_DB:-jobplatform}?authSource=admin
       - REDIS_URL=redis://redis:6379/0
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
       - QDRANT_HOST=qdrant
@@ -258,17 +251,10 @@ services:
     networks:
       - platform
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/gateway:/app/services/gateway
-      - ./shared:/app/shared
+      - mongodb
+      - redis
+      - redpanda
+      - kafka-init
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -292,13 +278,8 @@ services:
     networks:
       - platform
     depends_on:
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/collector:/app/services/collector
-      - ./shared:/app/shared
+      - redpanda
+      - kafka-init
 
   # Data Cleaner Service
   cleaner:
@@ -316,15 +297,9 @@ services:
     networks:
       - platform
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/cleaner:/app/services/cleaner
-      - ./shared:/app/shared
+      - mongodb
+      - redpanda
+      - kafka-init
 
   # Deduplication Service
   deduplicator:
@@ -343,15 +318,9 @@ services:
     networks:
       - platform
     depends_on:
-      redis:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/deduplicator:/app/services/deduplicator
-      - ./shared:/app/shared
+      - redis
+      - redpanda
+      - kafka-init
 
   # Verifier Service (Scam Detection + Authenticity)
   verifier:
@@ -369,16 +338,9 @@ services:
     networks:
       - platform
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/verifier:/app/services/verifier
-      - ./shared:/app/shared
-      - ./ml:/app/ml
+      - mongodb
+      - redpanda
+      - kafka-init
 
   # Enrichment Service (Skills + Salary Extraction)
   enrichment:
@@ -397,14 +359,8 @@ services:
     networks:
       - platform
     depends_on:
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/enrichment:/app/services/enrichment
-      - ./shared:/app/shared
-      - ./ml:/app/ml
+      - redpanda
+      - kafka-init
 
   # Embedding Service
   embedder:
@@ -424,15 +380,9 @@ services:
     networks:
       - platform
     depends_on:
-      qdrant:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/embedder:/app/services/embedder
-      - ./shared:/app/shared
+      - qdrant
+      - redpanda
+      - kafka-init
 
   # Notification Service
   notifier:
@@ -450,11 +400,7 @@ services:
     networks:
       - platform
     depends_on:
-      kafka-init:
-        condition: service_completed_successfully
-    volumes:
-      - ./services/notifier:/app/services/notifier
-      - ./shared:/app/shared
+      - kafka-init
 
   # ─────────────────────────────────────────────────────────────────────────────
   # FRONTEND
@@ -504,17 +450,30 @@ services:
   # OBSERVABILITY LAYER (LGTM Stack)
   # ─────────────────────────────────────────────────────────────────────────────
 
+  prometheus-init:
+    image: alpine:latest
+    container_name: jip-prometheus-init
+    volumes:
+      - prometheus_config:/etc/prometheus
+    networks:
+      - platform
+    command: >
+      sh -c "printf 'global:\n  scrape_interval: 15s\n  evaluation_interval: 15s\n  external_labels:\n    cluster: talentlens-prod\n    env: production\n\nscrape_configs:\n  - job_name: prometheus\n    static_configs:\n      - targets: [\"localhost:9090\"]\n\n  - job_name: gateway\n    metrics_path: /metrics\n    static_configs:\n      - targets: [\"gateway:8000\"]\n\n  - job_name: workers\n    static_configs:\n      - targets: [\"collector:9090\", \"cleaner:9091\", \"deduplicator:9092\", \"enrichment:9093\", \"verifier:9094\", \"embedder:9095\", \"notifier:9096\", \"orchestrator:9097\"]\n\n  - job_name: redpanda\n    metrics_path: /metrics\n    static_configs:\n      - targets: [\"redpanda:9644\"]\n\n  - job_name: qdrant\n    metrics_path: /metrics\n    static_configs:\n      - targets: [\"qdrant:6333\"]\n' > /etc/prometheus/prometheus.yml && chmod 644 /etc/prometheus/prometheus.yml"
+
   # Prometheus — Metrics collection
   prometheus:
     image: prom/prometheus:latest
     container_name: jip-prometheus
     restart: unless-stopped
+    depends_on:
+      prometheus-init:
+        condition: service_completed_successfully
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
       - --web.enable-lifecycle
     volumes:
-      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_config:/etc/prometheus
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"

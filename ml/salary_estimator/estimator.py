@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -208,12 +209,20 @@ def _detect_location_key(location: str | None) -> str | None:
 
 
 def _match_role(title: str) -> tuple[float, float, float] | None:
-    """Match title to a role salary range."""
+    """Match title to a role salary range using token boundaries for high accuracy."""
     title_lower = title.lower()
-    # Try longest match first
-    for role in sorted(ROLE_SALARY_MAP.keys(), key=len, reverse=True):
+    sorted_roles = sorted(ROLE_SALARY_MAP.keys(), key=len, reverse=True)
+    
+    # Pass 1: Strict word boundary match (most accurate)
+    for role in sorted_roles:
+        if re.search(r"\b" + re.escape(role) + r"\b", title_lower):
+            return ROLE_SALARY_MAP[role]
+            
+    # Pass 2: Substring match fallback
+    for role in sorted_roles:
         if role in title_lower:
             return ROLE_SALARY_MAP[role]
+            
     return None
 
 
@@ -263,8 +272,22 @@ class SalaryEstimator:
         location: str | None = None,
         experience_level: str | None = None,
     ) -> dict[str, Any]:
+        """Wrapper to make skills hashable for the LRU cache."""
+        skills_tuple = tuple(skills) if skills else ()
+        return self._cached_estimate(title, description, skills_tuple, company_name, location, experience_level)
+
+    @lru_cache(maxsize=2000)
+    def _cached_estimate(
+        self,
+        title: str,
+        description: str,
+        skills: tuple[str, ...],
+        company_name: str,
+        location: str | None,
+        experience_level: str | None,
+    ) -> dict[str, Any]:
         """
-        Estimate salary range for a job.
+        Estimate salary range for a job (Cached).
 
         Returns:
             {

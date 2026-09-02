@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -86,7 +86,7 @@ async def mark_notification_read(
     """Mark a single notification as read."""
     result = await db.notification_logs.update_one(
         {"_id": notification_id, "user_id": user["sub"]},
-        {"$set": {"read_at": datetime.utcnow()}},
+        {"$set": {"read_at": datetime.now(timezone.utc)}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -101,7 +101,7 @@ async def mark_all_read(
     """Mark all unread notifications as read."""
     result = await db.notification_logs.update_many(
         {"user_id": user["sub"], "read_at": None},
-        {"$set": {"read_at": datetime.utcnow()}},
+        {"$set": {"read_at": datetime.now(timezone.utc)}},
     )
     return {"message": f"Marked {result.modified_count} notifications as read"}
 

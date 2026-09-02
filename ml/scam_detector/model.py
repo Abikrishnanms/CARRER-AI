@@ -88,7 +88,7 @@ class ScamDetectorModel:
             except Exception as e:
                 logger.warning("ML prediction failed, using rule-based: %s", e)
 
-        return self._rule_based_score(features)
+        return self._rule_based_score(features, job)
 
     def classify(self, job: dict[str, Any]) -> str:
         """Return a human-readable label: 'scam' | 'suspicious' | 'legitimate'."""
@@ -117,15 +117,15 @@ class ScamDetectorModel:
             except Exception as e:
                 logger.warning("Batch ML prediction failed, falling back: %s", e)
 
-        return [self._rule_based_score(f) for f in features_list]
+        return [self._rule_based_score(f, j) for f, j in zip(features_list, jobs)]
 
     # ── Rule-based fallback ────────────────────────────────────────────────────
 
     @staticmethod
-    def _rule_based_score(features: dict[str, Any]) -> float:
+    def _rule_based_score(features: dict[str, Any], job: dict[str, Any] | None = None) -> float:
         """
         Lightweight rule-based scam score when no model is available.
-        Uses the same feature dict that extract_features() produces.
+        Uses the same feature dict that extract_features() produces, plus raw text heuristic checks.
         """
         score = 0.0
 
@@ -136,6 +136,18 @@ class ScamDetectorModel:
             score += 0.35
         if features.get("has_unrealistic_salary"):
             score += 0.25
+
+        # Enhanced Raw Text Heuristics
+        if job:
+            import re
+            text = f"{job.get('title', '')} {job.get('description', '')}".lower()
+            
+            if re.search(r"\b(pay upfront|transfer money|bank details required|no interview required|hired immediately)\b", text):
+                score += 0.30
+            if re.search(r"\b(easy money|work from home scam|guaranteed income|earn thousands)\b", text):
+                score += 0.20
+            if re.search(r"!!!+|(?:\$|€|£)\s*\d+\s*(?:a day|per day|hourly rate)", text) and len(text) < 300:
+                score += 0.15
 
         # Medium signals
         score += min(features.get("n_scam_keywords", 0) * 0.08, 0.30)

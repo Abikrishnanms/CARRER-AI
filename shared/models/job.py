@@ -65,6 +65,8 @@ class CollectionSource(str, Enum):
     RSS = "rss"
     COMPANY_CAREERS = "company_careers"
     GOVERNMENT = "government"
+    REMOTIVE = "remotive"
+    ARBEITNOW = "arbeitnow"
     MANUAL = "manual"
     UNKNOWN = "unknown"
 

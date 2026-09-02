@@ -204,7 +204,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes ${REDIS_PASSWORD:+--requirepass $$REDIS_PASSWORD}"]
     volumes:
-      - redis_data:/data
+      - redis_data_prod:/data
     ports:
       - "6379:6379"
     networks:

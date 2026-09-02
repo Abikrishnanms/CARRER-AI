@@ -62,22 +62,15 @@ async def create_tables() -> None:
     mongo_client = get_mongo_client()
     db = mongo_client[db_name]
 
+    from shared.database.base import create_all_indexes
     try:
-        from shared.database.base import create_all_indexes
         results = await create_all_indexes(db)
         total = sum(results.values())
         logger.info(f"Database initialized: {total} indexes created across {len(results)} collections")
-    except ImportError:
-        # Fallback minimal indexes if base module unavailable
-        logger.warning("shared.database.base unavailable — using minimal indexes")
-        await db.jobs.create_index([("source", 1), ("source_job_id", 1)], unique=True)
-        await db.companies.create_index("normalized_name", unique=True, sparse=True)
-        await db.users.create_index("email", unique=True)
-        await db.notification_logs.create_index([("user_id", 1), ("created_at", -1)])
-        await db.saved_searches.create_index([("user_id", 1)])
-        await db.pipeline_events.create_index([("job_id", 1)])
     except Exception as e:
         logger.error(f"Index creation failed: {e}")
+        if os.getenv("APP_ENV") == "production":
+            raise RuntimeError(f"Critical failure creating database indexes: {e}") from e
 
 
 async def close_client() -> None:

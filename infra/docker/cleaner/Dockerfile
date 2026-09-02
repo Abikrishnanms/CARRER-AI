@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir \
     -r /tmp/cleaner-requirements.txt
 
 COPY shared/ ./shared/
-COPY services/cleaner/ ./services/cleaner/
+COPY services/ ./services/
 
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1

@@ -31,18 +31,20 @@ from services.collector.agents import (
 
 logger = logging.getLogger(__name__)
 
-# ─── Per-source scaling weights (proportion of total limit) ──────────────────
 SOURCE_WEIGHTS: dict[str, float] = {
+    # Real API & Scraper sources (active)
     CollectionSource.ADZUNA: 0.15,
-    CollectionSource.GREENHOUSE: 0.12,
+    CollectionSource.GREENHOUSE: 0.15,
     CollectionSource.LEVER: 0.10,
-    CollectionSource.WORKDAY: 0.05,
-    CollectionSource.INDEED: 0.08,
+    CollectionSource.INDEED: 0.10,
     CollectionSource.NAUKRI: 0.15,
-    CollectionSource.LINKEDIN: 0.12,
-    CollectionSource.RSS: 0.10,
-    CollectionSource.GOVERNMENT: 0.03,
-    CollectionSource.COMPANY_CAREERS: 0.10,
+    CollectionSource.LINKEDIN: 0.15,
+    CollectionSource.WORKDAY: 0.10,
+    CollectionSource.RSS: 0.05,
+    CollectionSource.REMOTIVE: 0.05,
+    CollectionSource.ARBEITNOW: 0.0,
+    CollectionSource.GOVERNMENT: 0.0,
+    CollectionSource.COMPANY_CAREERS: 0.0,
 }
 
 

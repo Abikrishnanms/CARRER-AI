@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir \
 
 # Copy source code
 COPY shared/ ./shared/
-COPY services/gateway/ ./services/gateway/
+COPY services/ ./services/
 
 # Make shared importable
 ENV PYTHONPATH="/app"

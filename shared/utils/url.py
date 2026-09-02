@@ -1,6 +1,6 @@
 """
 URL normalization utilities for Job Intelligence Platform.
-Ensures all scraped, seeded, and returned URLs are clean, valid, and clickable direct apply links.
+Ensures all scraped and returned URLs are clean, valid, and clickable direct apply links.
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ Analytics router — job market trends, salary benchmarks, skill demand, company
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -30,7 +30,7 @@ async def get_overview(
     verified_jobs = await db.jobs.count_documents({"status": "published", "is_verified": True})
     remote_jobs = await db.jobs.count_documents({"status": "published", "remote_type": "remote"})
 
-    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+    cutoff_24h = datetime.now(timezone.utc) - timedelta(hours=24)
     new_today = await db.jobs.count_documents({"created_at": {"$gte": cutoff_24h}})
 
     return {
@@ -52,7 +52,7 @@ async def get_trends(
     Job posting volume trend over the last N days.
     Returns daily counts grouped by date.
     """
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     pipeline = [
         {"$match": {"created_at": {"$gte": cutoff}, "status": "published"}},
@@ -171,7 +171,7 @@ async def get_skill_demand(
     """
     Most in-demand skills ranked by frequency across job postings.
     """
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     pipeline = [
         {"$match": {"created_at": {"$gte": cutoff}, "status": "published"}},
@@ -272,12 +272,12 @@ async def get_pipeline_stats(
         counts[stage] = await db.jobs.count_documents({"status": stage})
 
     # Recent pipeline events (last 1h)
-    cutoff = datetime.utcnow() - timedelta(hours=1)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
     recent_events = await db.pipeline_events.count_documents({"created_at": {"$gte": cutoff}})
 
     # Average processing times per stage
     duration_pipeline = [
-        {"$match": {"created_at": {"$gte": datetime.utcnow() - timedelta(hours=24)}}},
+        {"$match": {"created_at": {"$gte": datetime.now(timezone.utc) - timedelta(hours=24)}}},
         {"$group": {"_id": "$agent_name", "avg_duration_ms": {"$avg": "$duration_ms"}}},
     ]
     duration_cursor = db.pipeline_events.aggregate(duration_pipeline)

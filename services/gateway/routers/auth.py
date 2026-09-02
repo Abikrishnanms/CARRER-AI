@@ -8,12 +8,15 @@ import hashlib
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, EmailStr, Field
+from passlib.context import CryptContext
+
+from shared.redis.client import get_redis_client
 
 from services.gateway.deps import (
     create_access_token,
@@ -54,14 +57,22 @@ class RefreshRequest(BaseModel):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+import bcrypt
+
 def _hash_password(password: str) -> str:
-    """SHA-256 + salt password hashing (use bcrypt in production)."""
-    salt = os.getenv("PASSWORD_SALT", "job-platform-salt-2024")
-    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+    """Hash password using bcrypt."""
+    pw_bytes = password.encode('utf-8')[:72]
+    return bcrypt.hashpw(pw_bytes, bcrypt.gensalt()).decode('utf-8')
 
 
 def _verify_password(password: str, hashed: str) -> bool:
-    return _hash_password(password) == hashed
+    """Verify bcrypt hashed password."""
+    try:
+        pw_bytes = password.encode('utf-8')[:72]
+        hash_bytes = hashed.encode('utf-8')
+        return bcrypt.checkpw(pw_bytes, hash_bytes)
+    except Exception:
+        return False
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -88,8 +99,8 @@ async def register(
         "role": "user",  # Always force 'user' — admins must be promoted via admin API
         "is_active": True,
         "email_verified": False,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
         "last_login": None,
         "notification_preferences": {
             "email": True,
@@ -142,7 +153,7 @@ async def login(
     # Update last login
     await db.users.update_one(
         {"_id": user["_id"]},
-        {"$set": {"last_login": datetime.utcnow()}},
+        {"$set": {"last_login": datetime.now(timezone.utc)}},
     )
 
     expire_minutes = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
@@ -199,9 +210,19 @@ async def logout(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, str]:
     """
-    Logout the current user.
-    (Token invalidation requires a Redis blacklist in production.)
+    Logout the current user by blacklisting their JWT token.
     """
+    jti = user.get("jti")
+    if jti:
+        exp = user.get("exp")
+        ttl = 3600  # fallback TTL
+        if exp:
+            now = datetime.now(timezone.utc).timestamp()
+            ttl = max(1, int(exp - now))
+            
+        redis = get_redis_client()
+        await redis.set(f"revoked_token:{jti}", "1", ex=ttl)
+        
     logger.info(f"User logged out: {user.get('email')}")
     return {"message": "Successfully logged out"}
 
@@ -248,7 +269,7 @@ async def change_password(
 
     await db.users.update_one(
         {"_id": user["sub"]},
-        {"$set": {"password_hash": _hash_password(new_password), "updated_at": datetime.utcnow()}},
+        {"$set": {"password_hash": _hash_password(new_password), "updated_at": datetime.now(timezone.utc)}},
     )
     return {"message": "Password changed successfully"}
 
@@ -297,7 +318,7 @@ async def create_first_admin(
         # If the user exists but isn't admin yet, just promote them
         await db.users.update_one(
             {"email": body.email},
-            {"$set": {"role": "admin", "updated_at": datetime.utcnow()}},
+            {"$set": {"role": "admin", "updated_at": datetime.now(timezone.utc)}},
         )
         user_id = str(existing["_id"])
         logger.info(f"Bootstrap: promoted existing user {body.email} to admin")
@@ -311,8 +332,8 @@ async def create_first_admin(
             "role": "admin",
             "is_active": True,
             "email_verified": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
             "last_login": None,
             "notification_preferences": {"email": True, "in_app": True, "telegram": False},
             "profile": {

@@ -173,6 +173,5 @@ Write-Host "    Job Board     : http://localhost:3000"      -ForegroundColor Gra
 Write-Host "    Admin UI      : http://localhost:3001"      -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Run health check : python scripts/health_check.py"  -ForegroundColor DarkGray
-Write-Host "  Seed sample data : python scripts/seed_data.py"     -ForegroundColor DarkGray
 Write-Host "  Stop infra       : .\scripts\start_dev.ps1 -Stop"   -ForegroundColor DarkGray
 Write-Host ""
