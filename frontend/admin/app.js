@@ -81,28 +81,6 @@ async function doLogin(e) {
   }
 }
 
-// ─── Collection Trigger ───────────────────────────────────
-async function triggerCollection() {
-  const btn = document.getElementById('collect-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Triggering…'; }
-  try {
-    const res = await post('/admin/collect', {
-      sources: ['adzuna', 'greenhouse', 'indeed', 'rss'],
-      search_terms: ['software engineer', 'data scientist', 'python developer'],
-      limit: 500
-    });
-    showToast(res.message || 'Collection triggered successfully ✓', 'success');
-  } catch (err) {
-    if (err.message && (err.message.includes('expired') || err.message.includes('token') || err.message.includes('Signature'))) {
-      logout();
-    } else {
-      showToast(`Failed to trigger: ${err.message}`, 'error');
-    }
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="btn-icon">⚡</span> Collect Now'; }
-  }
-}
-
 // ─── API Status ───────────────────────────────────────────
 async function checkApiStatus() {
   const dot = document.getElementById('status-dot');

@@ -101,10 +101,6 @@ class CollectorService:
         triggered_by = message.get("triggered_by", "")
         is_search = triggered_by == "search_auto_trigger"
 
-        if not is_search and self._collection_lock.locked():
-            logger.warning("Collection already in progress — skipping trigger")
-            return
-
         sources = message.get("sources") or get_all_sources()
         search_terms = message.get("search_terms") or None
         location = message.get("location") or None
@@ -114,10 +110,16 @@ class CollectorService:
             f"📥 Collection triggered by {triggered_by}: "
             f"sources={len(sources)}, terms={len(search_terms or DEFAULT_SEARCH_TERMS)}, limit={limit}"
         )
-        
+
         if is_search:
             # Run search collections concurrently without locking global scheduled runs
             asyncio.create_task(self._run_collection(
+                sources, search_terms, location, limit
+            ))
+        elif self._collection_lock.locked():
+            # A scheduled collection is running — queue this trigger to run afterward
+            logger.info("Collection in progress — queuing triggered collection")
+            asyncio.create_task(self._queued_trigger(
                 sources, search_terms, location, limit
             ))
         else:
@@ -125,6 +127,20 @@ class CollectorService:
                 self._last_collection_summary = await self._run_collection(
                     sources, search_terms, location, limit
                 )
+
+    async def _queued_trigger(
+        self,
+        sources: list[str],
+        search_terms: list[str] | None,
+        location: str | None,
+        limit: int,
+    ) -> None:
+        """Wait for the collection lock, then run the triggered collection."""
+        async with self._collection_lock:
+            logger.info("▶ Queued collection trigger starting (after scheduled collection)")
+            self._last_collection_summary = await self._run_collection(
+                sources, search_terms, location, limit
+            )
 
     async def _scheduled_collection(self) -> None:
         """Run collection on schedule (every 90 minutes by default)."""

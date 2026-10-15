@@ -1,27 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TalentLens — Find Jobs That Actually Exist</title>
+  <title>TalentLens — Verified Jobs, Zero Noise</title>
   <meta name="description" content="Discover verified, scam-free jobs with AI-powered matching. TalentLens aggregates thousands of jobs, detects fraud, and matches you to your perfect role." />
-  <meta property="og:title" content="TalentLens — Find Jobs That Actually Exist" />
-  <meta property="og:description" content="Bypass ghost jobs with our AI-verified pipeline. Connect with elite tech teams actively hiring." />
+  <meta property="og:title" content="TalentLens — Verified Jobs, Zero Noise" />
+  <meta property="og:description" content="AI-verified job listings from top companies. No ghost jobs, no scams." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ─── NAVBAR ─────────────────────────────────────────────────────────────── -->
+<!-- ─── NAVBAR ──────────────────────────────────────────────── -->
 <nav class="navbar" id="navbar">
   <div class="nav-inner">
     <a href="#" class="nav-logo" id="nav-logo" onclick="showSection('discover')">
       <div class="logo-icon">
-        <svg viewBox="0 0 32 32" fill="none">
-          <circle cx="16" cy="16" r="13" stroke="#A78BFA" stroke-width="2.5" />
-          <circle cx="16" cy="16" r="6" fill="#A78BFA" />
+        <svg viewBox="0 0 32 32" fill="none" width="26" height="26">
+          <circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="2.5" opacity="0.3" />
+          <circle cx="16" cy="16" r="6" fill="currentColor" opacity="0.8" />
         </svg>
       </div>
       <span class="logo-text">TalentLens</span>
@@ -35,38 +35,48 @@
     </div>
 
     <div class="nav-actions">
-      
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+
       <button class="nav-icon-btn" id="btn-notif-nav" onclick="showSection('notifications')" title="Notifications">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="19" height="19">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
         <span class="notif-dot hidden" id="notif-dot"></span>
       </button>
 
-      <button class="nav-icon-btn" id="btn-chat-nav" onclick="showToast('Community & Direct Chat active', 'info')" title="Messages">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="19" height="19">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-        </svg>
-      </button>
-
       <button class="btn btn-ghost btn-sm" id="btn-login" onclick="openLoginModal()">Sign In</button>
-      
+
       <div class="user-menu hidden" id="user-menu">
         <button class="avatar-btn" id="avatar-btn" onclick="toggleUserDropdown()">
           <div class="avatar" id="user-avatar">U</div>
         </button>
         <div class="user-dropdown hidden" id="user-dropdown">
           <div class="dropdown-header" id="dropdown-email"></div>
-          <a href="#" class="dropdown-item" onclick="showSection('resume')">✨ Skill Hub / AI Match</a>
-          <a href="#" class="dropdown-item" onclick="showSection('saved')">Saved Applications</a>
+          <a href="#" class="dropdown-item" onclick="showSection('resume')">Skill Hub</a>
+          <a href="#" class="dropdown-item" onclick="showSection('saved')">Applications</a>
           <a href="#" class="dropdown-item" onclick="showSection('notifications')">Notifications <span class="badge" id="notif-badge">0</span></a>
           <div class="dropdown-divider"></div>
           <a href="#" class="dropdown-item danger" onclick="logout()">Sign Out</a>
         </div>
       </div>
 
-      <!-- Hamburger (mobile only) -->
+      <!-- Hamburger (mobile) -->
       <button class="nav-hamburger" id="nav-hamburger" onclick="toggleMobileNav()" aria-label="Menu">
         <span></span><span></span><span></span>
       </button>
@@ -76,55 +86,47 @@
 
 <!-- Mobile Nav Drawer -->
 <div class="mobile-nav-drawer" id="mobile-nav-drawer">
-  <a href="#" class="mobile-nav-link active" onclick="showSection('discover'); closeMobileNav()">🔍 Discover</a>
-  <a href="#" class="mobile-nav-link" onclick="showSection('saved'); closeMobileNav()">📋 Applications</a>
-  <a href="#" class="mobile-nav-link" onclick="showSection('resume'); closeMobileNav()">✨ Skill Hub</a>
-  <a href="#" class="mobile-nav-link" onclick="showSection('analytics'); closeMobileNav()">📊 Network</a>
+  <a href="#" class="mobile-nav-link active" onclick="showSection('discover'); closeMobileNav()">Discover</a>
+  <a href="#" class="mobile-nav-link" onclick="showSection('saved'); closeMobileNav()">Applications</a>
+  <a href="#" class="mobile-nav-link" onclick="showSection('resume'); closeMobileNav()">Skill Hub</a>
+  <a href="#" class="mobile-nav-link" onclick="showSection('analytics'); closeMobileNav()">Network</a>
   <div class="mobile-nav-divider"></div>
   <div class="mobile-nav-actions">
-    <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="openLoginModal(); closeMobileNav()">Sign In</button>
+    <button class="btn btn-primary btn-full" onclick="openLoginModal(); closeMobileNav()">Sign In</button>
   </div>
 </div>
 
-<!-- ─── MAIN CONTAINER (DISCOVER VIEW) ────────────────────────────────────── -->
+<!-- ─── MAIN ───────────────────────────────────────────────── -->
 <main class="main-page" id="main-page">
 
-  <!-- ─── DISCOVER / HERO SECTION ─────────────────────────────────────────── -->
+  <!-- ─── DISCOVER SECTION ──────────────────────────────────── -->
   <div class="page-section" id="section-discover">
-    
-    <!-- Hero Header Row -->
+
+    <!-- Hero -->
     <section class="hero-banner">
       <div class="hero-split-grid">
-        
-        <!-- Hero Left Info -->
         <div class="hero-text-col">
           <h1 class="hero-headline">
-            Find Jobs That <span class="accent-violet">Actually</span><br />
-            <span class="accent-cyan">Exist</span>
+            Verified jobs from<br />
+            companies <span class="accent-violet">actually hiring</span>
           </h1>
           <p class="hero-description">
-            Bypass ghost jobs with our AI-verified pipeline. Connect with elite tech teams actively hiring.
+            Every listing is AI-verified for authenticity. No ghost jobs, no scams — just real opportunities matched to your skills.
           </p>
-
           <div class="hero-stats-row">
             <div class="stat-pill-box">
-              <span class="stat-icon">💼</span>
               <div class="stat-meta">
                 <span class="stat-bold" id="stat-jobs">4.2K</span>
                 <span class="stat-sub">Jobs</span>
               </div>
             </div>
-
             <div class="stat-pill-box">
-              <span class="stat-icon">🏢</span>
               <div class="stat-meta">
                 <span class="stat-bold" id="stat-companies">1.1K</span>
                 <span class="stat-sub">Companies</span>
               </div>
             </div>
-
             <div class="stat-pill-box">
-              <span class="stat-icon">🛡️</span>
               <div class="stat-meta">
                 <span class="stat-bold" id="stat-verified">99.4%</span>
                 <span class="stat-sub">Verified</span>
@@ -133,176 +135,170 @@
           </div>
         </div>
 
-        <!-- Hero Right Search Bar -->
+        <!-- Search Bar -->
         <div class="hero-search-col">
           <div class="search-bar-unified" id="search-bar-unified">
-            
             <div class="search-input-field">
               <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
-              <input type="text" id="hero-search" placeholder="Job title, skills, or company..." autocomplete="off" />
+              <input type="text" id="hero-search" placeholder="Job title, skill, or company…" autocomplete="off" />
+              <button class="clear-search-btn hidden" id="clear-search" onclick="clearSearch()" aria-label="Clear search">×</button>
               <div class="autocomplete-dropdown hidden" id="autocomplete"></div>
             </div>
-
             <div class="search-input-field location-field">
               <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                 <circle cx="12" cy="10" r="3"></circle>
               </svg>
-              <input type="text" id="hero-location" placeholder="City, state, or remote..." />
+              <input type="text" id="hero-location" placeholder="City or remote…" />
             </div>
-
             <button class="btn-search-action" id="btn-search" onclick="performSearch()">
               Search
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
-                <line x1="4" y1="21" x2="4" y2="14"></line>
-                <line x1="4" y1="10" x2="4" y2="3"></line>
-                <line x1="12" y1="21" x2="12" y2="12"></line>
-                <line x1="12" y1="8" x2="12" y2="3"></line>
-                <line x1="20" y1="21" x2="20" y2="16"></line>
-                <line x1="20" y1="12" x2="20" y2="3"></line>
-                <line x1="1" y1="14" x2="7" y2="14"></line>
-                <line x1="9" y1="8" x2="15" y2="8"></line>
-                <line x1="17" y1="16" x2="23" y2="16"></line>
-              </svg>
             </button>
-
           </div>
         </div>
-
       </div>
     </section>
 
-    <!-- ─── DISCOVER CONTENT: FILTERS SIDEBAR + RECOMMENDED MATCHES ──────── -->
+    <!-- ─── Filters + Job Listings ──────────────────────────── -->
     <div class="discover-content-layout">
-      
-      <!-- Left Filters Sidebar -->
+
+      <!-- Filters Sidebar -->
       <aside class="filters-card" id="filters-card">
         <div class="filters-card-header">
           <h3>Filters</h3>
-          <button class="btn-clear-filters" onclick="clearFilters()">Clear All</button>
+          <button class="btn-clear-filters" onclick="clearFilters()">Clear all</button>
         </div>
 
-        <!-- Verified Only Toggle -->
         <div class="filters-body open" id="filters-body">
-        <div class="filter-switch-row">
-          <label class="switch-control">
-            <input type="checkbox" id="filter-verified-checkbox" checked onchange="toggleVerifiedFilter(this.checked)" />
-            <span class="switch-track"><span class="switch-thumb"></span></span>
-          </label>
-          <span class="switch-label">Verified Only</span>
-        </div>
-
-        <!-- Work Mode (Radios) -->
-        <div class="filter-section">
-          <label class="filter-section-title">WORK MODE</label>
-          <div class="custom-radio-group">
-            <label class="radio-option">
-              <input type="radio" name="work_mode" value="" checked onchange="setWorkModeFilter('')" />
-              <span class="radio-circle"></span>
-              <span class="radio-text">All</span>
+          <!-- Verified Toggle -->
+          <div class="filter-switch-row">
+            <label class="switch-control">
+              <input type="checkbox" id="filter-verified-checkbox" checked onchange="toggleVerifiedFilter(this.checked)" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
             </label>
-            <label class="radio-option">
-              <input type="radio" name="work_mode" value="remote" onchange="setWorkModeFilter('remote')" />
-              <span class="radio-circle"></span>
-              <span class="radio-text">Remote</span>
-            </label>
-            <label class="radio-option">
-              <input type="radio" name="work_mode" value="hybrid" onchange="setWorkModeFilter('hybrid')" />
-              <span class="radio-circle"></span>
-              <span class="radio-text">Hybrid</span>
-            </label>
+            <span class="switch-label">Verified only</span>
           </div>
-        </div>
 
-        <!-- Experience (Pills) -->
-        <div class="filter-section">
-          <label class="filter-section-title">EXPERIENCE</label>
-          <div class="experience-chips-grid">
-            <button class="exp-chip active" data-exp="" onclick="setExperienceChip(this, '')">All</button>
-            <button class="exp-chip" data-exp="entry" onclick="setExperienceChip(this, 'entry')">Entry</button>
-            <button class="exp-chip" data-exp="mid" onclick="setExperienceChip(this, 'mid')">Mid</button>
-            <button class="exp-chip" data-exp="senior" onclick="setExperienceChip(this, 'senior')">Senior</button>
-            <button class="exp-chip" data-exp="lead" onclick="setExperienceChip(this, 'lead')">Lead</button>
+          <!-- Work Mode -->
+          <div class="filter-section">
+            <label class="filter-section-title">Work mode</label>
+            <div class="custom-radio-group">
+              <label class="radio-option">
+                <input type="radio" name="work_mode" value="" checked onchange="setWorkModeFilter('')" />
+                <span class="radio-circle"></span>
+                <span class="radio-text">All</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="work_mode" value="remote" onchange="setWorkModeFilter('remote')" />
+                <span class="radio-circle"></span>
+                <span class="radio-text">Remote</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="work_mode" value="hybrid" onchange="setWorkModeFilter('hybrid')" />
+                <span class="radio-circle"></span>
+                <span class="radio-text">Hybrid</span>
+              </label>
+            </div>
           </div>
-        </div>
 
-        <!-- LPA Salary Slider -->
-        <div class="filter-section">
-          <label class="filter-section-title">LPA SALARY SLIDER</label>
-          <div class="salary-slider-container">
-            <input type="range" id="salary-range" min="0" max="60" step="5" value="10" oninput="onSalarySlider(this.value)" class="custom-range-slider" />
-            <div class="salary-range-labels">
-              <span id="salary-min-label">₹10L</span>
-              <span id="salary-max-label">₹35L+</span>
+          <!-- Experience -->
+          <div class="filter-section">
+            <label class="filter-section-title">Experience</label>
+            <div class="experience-chips-grid">
+              <button class="exp-chip active" data-exp="" onclick="setExperienceChip(this, '')">All</button>
+              <button class="exp-chip" data-exp="entry" onclick="setExperienceChip(this, 'entry')">Entry</button>
+              <button class="exp-chip" data-exp="mid" onclick="setExperienceChip(this, 'mid')">Mid</button>
+              <button class="exp-chip" data-exp="senior" onclick="setExperienceChip(this, 'senior')">Senior</button>
+              <button class="exp-chip" data-exp="lead" onclick="setExperienceChip(this, 'lead')">Lead</button>
+            </div>
+          </div>
+
+          <!-- Salary -->
+          <div class="filter-section">
+            <label class="filter-section-title">Minimum salary</label>
+            <div class="salary-slider-container">
+              <input type="range" id="salary-range" min="0" max="60" step="5" value="10" oninput="onSalarySlider(this.value)" class="custom-range-slider" />
+              <div class="salary-range-labels">
+                <span id="salary-min-label">₹10L</span>
+                <span id="salary-max-label">₹60L+</span>
+              </div>
             </div>
           </div>
         </div>
-        </div><!-- end .filters-body -->
       </aside>
 
-      <!-- Right Recommended Matches Section -->
+      <!-- Job Listings -->
       <section class="matches-main-col">
         <div class="matches-header-row">
-          <h2 class="matches-title">Recommended Matches</h2>
+          <h2 class="matches-title">Recommended</h2>
           <div class="sort-selector-wrap">
             <span class="sort-prefix">Sort:</span>
             <select class="sort-dropdown" id="sort-select" onchange="onSortChange()">
-              <option value="quality_score">Match Score ▾</option>
-              <option value="posted_at">Newest ▾</option>
-              <option value="salary_max">Highest Salary ▾</option>
+              <option value="quality_score">Match</option>
+              <option value="posted_at">Newest</option>
+              <option value="salary_max">Salary</option>
             </select>
           </div>
         </div>
 
-        <!-- Jobs Grid Container -->
-        <div class="jobs-cards-grid" id="jobs-grid">
-          <!-- Populated dynamically by app.js -->
-          <div class="job-skeleton"></div>
-          <div class="job-skeleton"></div>
-          <div class="job-skeleton"></div>
-        </div>
+         <!-- Results Status -->
+          <div class="results-status hidden" id="results-status">
+            <span class="results-status-text" id="results-status-text"></span>
+            <button class="results-refresh hidden" id="results-refresh" onclick="refreshResults()" aria-label="Refresh results">↻</button>
+          </div>
+
+         <!-- Jobs Container -->
+         <div class="jobs-cards-grid" id="jobs-grid">
+           <div class="job-skeleton"></div>
+           <div class="job-skeleton"></div>
+           <div class="job-skeleton"></div>
+         </div>
 
         <!-- Empty State -->
         <div class="empty-state hidden" id="empty-state">
           <div class="empty-icon">🔍</div>
-          <h3>No matching jobs found</h3>
-          <p>Try broadening your search query or clearing filters.</p>
+          <h3 id="empty-state-title">No matching jobs found</h3>
+          <p id="empty-state-desc">Try broadening your search or clearing filters.</p>
+          <div id="empty-state-suggestions" class="suggestions-row"></div>
           <button class="btn btn-primary" onclick="clearFilters(); performSearch()">Reset Filters</button>
         </div>
 
-        <!-- Load More Button -->
+        <!-- Load More -->
         <div class="load-more-wrap" id="load-more-wrap">
-          <button class="btn-load-more" id="btn-load-more" onclick="loadMoreJobs()">Load More Jobs</button>
+          <button class="btn-load-more" id="btn-load-more" onclick="loadMoreJobs()">Load More</button>
         </div>
 
-        <!-- Pagination fallback -->
         <div class="pagination hidden" id="pagination"></div>
       </section>
-
     </div>
   </div>
 
-  <!-- ─── SKILL HUB / AI RESUME MATCH SECTION ──────────────────────────────── -->
+  <!-- ─── BACK TO TOP ───────────────────────────────────────── -->
+  <button class="back-to-top hidden" id="back-to-top" onclick="scrollToTop()">
+    ↑
+  </button>
+
+  <!-- ─── SKILL HUB / RESUME SECTION ───────────────────────── -->
   <div class="page-section hidden" id="section-resume">
     <div class="resume-section-inner">
       <div class="resume-hero-header">
-        <div class="section-badge">✨ AI-Powered</div>
-        <h2>Skill Hub →<span class="accent-cyan"> AI Resume Matcher</span></h2>
-        <p>Analyze your profile against live verified job postings to discover real compatibility and skill bridges.</p>
+        <div class="section-badge">AI-Powered</div>
+        <h2>Skill Hub · <span class="accent-violet">Resume Matcher</span></h2>
+        <p>Analyze your profile against live verified job postings to discover real compatibility.</p>
       </div>
 
-      <!-- Step Indicator -->
+      <!-- Steps -->
       <div class="step-indicator" id="step-indicator">
-        <div class="step-item active" id="step-1"><div class="step-circle">1</div><div class="step-label">Upload Resume</div></div>
+        <div class="step-item active" id="step-1"><div class="step-circle">1</div><div class="step-label">Upload</div></div>
         <div class="step-connector" id="conn-1"></div>
-        <div class="step-item" id="step-2"><div class="step-circle">2</div><div class="step-label">Build Profile</div></div>
+        <div class="step-item" id="step-2"><div class="step-circle">2</div><div class="step-label">Profile</div></div>
         <div class="step-connector" id="conn-2"></div>
-        <div class="step-item" id="step-3"><div class="step-circle">3</div><div class="step-label">Matched Jobs</div></div>
+        <div class="step-item" id="step-3"><div class="step-circle">3</div><div class="step-label">Matches</div></div>
         <div class="step-connector" id="conn-3"></div>
-        <div class="step-item" id="step-4"><div class="step-circle">4</div><div class="step-label">Skill Gap</div></div>
+        <div class="step-item" id="step-4"><div class="step-circle">4</div><div class="step-label">Gap</div></div>
       </div>
 
       <!-- Upload Zone -->
@@ -310,32 +306,35 @@
         <div class="upload-zone-wrapper">
           <div class="upload-zone" id="upload-zone" onclick="document.getElementById('resume-file-input').click()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
             <div class="upload-icon-wrap">📄</div>
-            <div class="upload-title">Drag & Drop your Resume here</div>
-            <div class="upload-sub">or click to browse your files</div>
+            <div class="upload-title">Drop your resume here</div>
+            <div class="upload-sub">or click to browse</div>
             <div class="upload-formats">
-              <span class="format-chip">PDF</span><span class="format-chip">DOCX</span><span class="format-chip">TXT</span><span class="format-chip">Max 10MB</span>
+              <span class="format-chip">PDF</span>
+              <span class="format-chip">DOCX</span>
+              <span class="format-chip">TXT</span>
+              <span class="format-chip">Max 10MB</span>
             </div>
           </div>
           <input type="file" id="resume-file-input" accept=".pdf,.docx,.doc,.txt" onchange="handleFileSelect(event)" style="display:none" />
 
-          <div style="margin-top:16px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap">
-            <button type="button" class="btn btn-ghost" onclick="togglePasteResumeArea()">📝 Paste Resume Text</button>
-            <button type="button" class="btn btn-ghost" onclick="loadSampleResumeDemo()">⚡ Try Sample Profile Demo</button>
+          <div class="paste-resume-box hidden" id="paste-resume-box">
+            <label class="filter-section-title">Paste resume text</label>
+            <textarea id="paste-resume-text" rows="6" placeholder="Paste your resume content here…" class="form-input"></textarea>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+              <button type="button" class="btn btn-ghost" onclick="togglePasteResumeArea()">Cancel</button>
+              <button type="button" class="btn btn-primary" onclick="submitPastedResume()">Analyze</button>
+            </div>
           </div>
 
-          <div class="paste-resume-box hidden" id="paste-resume-box" style="margin-top:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px">
-            <label style="display:block;font-size:0.85rem;font-weight:600;margin-bottom:8px;color:var(--text-secondary)">Paste your resume text below:</label>
-            <textarea id="paste-resume-text" rows="8" placeholder="Paste your resume content here..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);padding:12px;font-family:inherit;font-size:0.88rem;resize:vertical"></textarea>
-            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
-              <button type="button" class="btn btn-ghost" onclick="togglePasteResumeArea()">Cancel</button>
-              <button type="button" class="btn btn-primary" onclick="submitPastedResume()">Analyze Text ✨</button>
-            </div>
+          <div style="margin-top:16px;display:flex;justify-content:center;gap:8px">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="togglePasteResumeArea()">Paste text</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="loadSampleResumeDemo()">Try demo</button>
           </div>
 
           <div class="upload-progress-wrap hidden" id="upload-progress">
             <div class="progress-status">
               <div class="progress-spinner"></div>
-              <div class="progress-text"><strong id="progress-label">Uploading resume…</strong><br>Analyzing skills and experience.</div>
+              <div class="progress-text"><strong id="progress-label">Uploading…</strong></div>
             </div>
             <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-bar"></div></div>
           </div>
@@ -350,7 +349,7 @@
       <!-- Recs Grid -->
       <div id="resume-step-recs" class="hidden">
         <div class="rec-section-header">
-          <div class="rec-section-title">🎯 Your Matched Jobs</div>
+          <div class="rec-section-title">Your Matched Jobs</div>
           <div class="rec-count-badge" id="rec-count-badge">Loading…</div>
         </div>
         <div class="rec-grid" id="rec-grid"></div>
@@ -363,33 +362,36 @@
     </div>
   </div>
 
-  <!-- ─── NETWORK / INSIGHTS SECTION ──────────────────────────────────────── -->
+  <!-- ─── NETWORK / INSIGHTS ───────────────────────────────── -->
   <div class="page-section hidden" id="section-analytics">
-    <div class="container" style="padding-top:40px">
+    <div class="container">
       <div class="section-header">
         <h2>Network & Market Intelligence</h2>
         <p>Real-time salary benchmarks, in-demand skills, and remote work distribution</p>
       </div>
       <div class="analytics-grid" id="analytics-grid">
-        <div class="analytics-skeleton"></div><div class="analytics-skeleton"></div><div class="analytics-skeleton"></div>
+        <div class="analytics-skeleton"></div>
+        <div class="analytics-skeleton"></div>
+        <div class="analytics-skeleton"></div>
       </div>
     </div>
   </div>
 
-  <!-- ─── APPLICATIONS / SAVED SECTION ────────────────────────────────────── -->
+  <!-- ─── APPLICATIONS / SAVED ─────────────────────────────── -->
   <div class="page-section hidden" id="section-saved">
-    <div class="container" style="padding-top:40px">
+    <div class="container">
       <div class="section-header">
-        <h2>Applications & Saved Searches</h2>
-        <p>Track your saved roles, application status, and automated alerts</p>
+        <h2>Your Saved Jobs</h2>
+        <p id="saved-jobs-count">Jobs you've bookmarked — click to view details</p>
+        <button class="btn btn-ghost btn-small hidden" id="clear-saved-btn" onclick="clearAllSavedJobs()">Clear all saved</button>
       </div>
       <div id="saved-searches-list"><div class="loading-spinner"></div></div>
     </div>
   </div>
 
-  <!-- ─── NOTIFICATIONS SECTION ──────────────────────────────────────────── -->
+  <!-- ─── NOTIFICATIONS ────────────────────────────────────── -->
   <div class="page-section hidden" id="section-notifications">
-    <div class="container" style="padding-top:40px">
+    <div class="container">
       <div class="section-header" style="display:flex;justify-content:space-between;align-items:center">
         <div>
           <h2>Notifications</h2>
@@ -403,7 +405,12 @@
 
 </main>
 
-<!-- ─── JOB DETAIL DRAWER ─────────────────────────────────────────────────── -->
+<!-- ─── FOOTER ─────────────────────────────────────────────── -->
+<footer class="site-footer">
+  <p>TalentLens · AI-verified job intelligence · <a href="#">Privacy</a> · <a href="#">Terms</a></p>
+</footer>
+
+<!-- ─── JOB DETAIL DRAWER ──────────────────────────────────── -->
 <div class="drawer-overlay hidden" id="drawer-overlay" onclick="closeDrawer()"></div>
 <div class="job-drawer hidden" id="job-drawer">
   <div class="drawer-inner" id="drawer-content">
@@ -411,19 +418,12 @@
   </div>
 </div>
 
-
-<!-- ─── AUTH MODALS ───────────────────────────────────────────────────────── -->
+<!-- ─── AUTH MODALS ────────────────────────────────────────── -->
 <div class="modal-overlay hidden" id="modal-overlay"></div>
 
 <div class="modal hidden" id="modal-login">
   <button class="modal-close" onclick="closeModal()">×</button>
   <div class="modal-header">
-    <div class="modal-logo">
-      <svg viewBox="0 0 32 32" fill="none" width="36">
-        <circle cx="16" cy="16" r="13" stroke="#A78BFA" stroke-width="2.5" />
-        <circle cx="16" cy="16" r="6" fill="#A78BFA" />
-      </svg>
-    </div>
     <h2>Welcome back</h2>
     <p>Sign in to access your applications and alerts</p>
   </div>
@@ -438,20 +438,14 @@
     </div>
     <div class="form-error hidden" id="login-error"></div>
     <button type="submit" class="btn btn-primary btn-full" id="login-submit">Sign In</button>
-    <p class="modal-switch">Don't have an account? <a href="#" onclick="switchToRegister()">Create one</a></p>
+    <p class="modal-switch">No account? <a href="#" onclick="switchToRegister()">Create one</a></p>
   </form>
 </div>
 
 <div class="modal hidden" id="modal-register">
   <button class="modal-close" onclick="closeModal()">×</button>
   <div class="modal-header">
-    <div class="modal-logo">
-      <svg viewBox="0 0 32 32" fill="none" width="36">
-        <circle cx="16" cy="16" r="13" stroke="#A78BFA" stroke-width="2.5" />
-        <circle cx="16" cy="16" r="6" fill="#A78BFA" />
-      </svg>
-    </div>
-    <h2>Create your account</h2>
+    <h2>Create account</h2>
     <p>Get instant verified match alerts</p>
   </div>
   <form onsubmit="submitRegister(event)" class="modal-form">
@@ -469,7 +463,7 @@
     </div>
     <div class="form-error hidden" id="reg-error"></div>
     <button type="submit" class="btn btn-primary btn-full" id="reg-submit">Create Account</button>
-    <p class="modal-switch">Already have an account? <a href="#" onclick="switchToLogin()">Sign in</a></p>
+    <p class="modal-switch">Have an account? <a href="#" onclick="switchToLogin()">Sign in</a></p>
   </form>
 </div>
 

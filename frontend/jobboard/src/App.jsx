@@ -81,10 +81,15 @@ function App() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/analytics/stats`)
+      const response = await fetch(`${API_URL}/analytics/overview`)
       if (response.ok) {
         const data = await response.json()
-        setStats(data)
+        setStats({
+          total_jobs: data.total_jobs,
+          verified_jobs: data.verified_jobs,
+          scam_detected: 0,
+          companies: data.total_companies,
+        })
       }
     } catch {
       setStats({ total_jobs: 124_532, verified_jobs: 98_234, scam_detected: 2_891, companies: 4_201 })
@@ -94,7 +99,8 @@ function App() {
   // ─── Effects ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetchStats()
+    Promise.all([fetchJobs(true), fetchStats()])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

@@ -5,7 +5,6 @@ Ensures all scraped and returned URLs are clean, valid, and clickable direct app
 
 from __future__ import annotations
 
-import html
 import re
 from urllib.parse import quote_plus
 
@@ -73,7 +72,7 @@ def normalize_url(
 ) -> str:
     """
     Clean, validate, and normalize a URL.
-    - Decodes HTML entities (&amp; -> &)
+    - Decodes &amp; entities (-> &)
     - Fixes protocol-relative URLs (//...)
     - Prepends https:// if scheme is missing
     - Replaces invalid dummy domains (.example.com) with direct company career / search links
@@ -82,8 +81,9 @@ def normalize_url(
     if not url:
         return _make_direct_apply_fallback(title, company_name)
 
-    # 1. Decode HTML entities and strip surrounding whitespace/quotes
-    cleaned = html.unescape(str(url)).strip().strip("\"'<>")
+    # 1. Decode only &amp; entities (common in URLs), not other HTML entities
+    #    that could corrupt query parameter names like &copy -> ©, &not -> ¬
+    cleaned = str(url).replace("&amp;", "&").strip().strip("\"'<>")
 
     if not cleaned or cleaned.startswith(("#", "javascript:", "mailto:")):
         return _make_direct_apply_fallback(title, company_name)
@@ -105,10 +105,12 @@ def normalize_url(
         else:
             cleaned = f"https://{cleaned}"
 
-    # 5. Clean up any accidental double-slashes in path (except after http(s):)
+    # 5. Clean up any accidental double-slashes in path only (preserve query string)
     scheme_part, _, rest = cleaned.partition("://")
     if rest:
-        rest = re.sub(r"/+", "/", rest)
+        path_part, qs_sep, query_part = rest.partition("?")
+        path_part = re.sub(r"/+", "/", path_part)
+        rest = path_part + (f"{qs_sep}{query_part}" if qs_sep else "")
         cleaned = f"{scheme_part}://{rest}"
 
     return cleaned
@@ -139,13 +141,18 @@ def _make_direct_apply_fallback(title: str | None, company_name: str | None) -> 
     return "https://www.linkedin.com/jobs/search/"
 
 
-async def verify_live_url(url: str | None, timeout: float = 3.5) -> dict[str, Any]:
+async def verify_live_url(
+    url: str | None,
+    timeout: float = 3.5,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
     """
     Check if a URL is active and reachable via HTTP HEAD/GET request.
     Returns dict with is_reachable flag, status_code, and final URL.
-    """
-    import httpx
 
+    Pass a shared `client` to avoid creating a new `httpx.AsyncClient`
+    per call, which is expensive under high concurrency.
+    """
     if not url or not url.startswith(("http://", "https://")):
         return {"is_reachable": False, "status_code": None, "error": "invalid_scheme"}
 
@@ -156,21 +163,34 @@ async def verify_live_url(url: str | None, timeout: float = 3.5) -> dict[str, An
         )
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            try:
-                resp = await client.head(url, headers=headers)
-                if resp.status_code < 400:
-                    return {"is_reachable": True, "status_code": resp.status_code, "final_url": str(resp.url)}
-            except Exception:
-                pass
-
-            resp = await client.get(url, headers=headers)
-            is_ok = resp.status_code < 400
-            return {
-                "is_reachable": is_ok,
-                "status_code": resp.status_code,
-                "final_url": str(resp.url),
-            }
+        if client is None:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=timeout, follow_redirects=True) as _client:
+                return await _verify_live_url_with_client(_client, url, headers, timeout)
+        else:
+            return await _verify_live_url_with_client(client, url, headers, timeout)
     except Exception as e:
         return {"is_reachable": False, "status_code": None, "error": str(e)}
+
+
+async def _verify_live_url_with_client(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    timeout: float,
+) -> dict[str, Any]:
+    try:
+        resp = await client.head(url, headers=headers)
+        if resp.status_code < 400:
+            return {"is_reachable": True, "status_code": resp.status_code, "final_url": str(resp.url)}
+    except Exception:
+        pass
+
+    resp = await client.get(url, headers=headers)
+    is_ok = resp.status_code < 400
+    return {
+        "is_reachable": is_ok,
+        "status_code": resp.status_code,
+        "final_url": str(resp.url),
+    }
 

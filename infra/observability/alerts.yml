@@ -1,0 +1,46 @@
+groups:
+  - name: platform_alerts
+    rules:
+      - alert: ContainerRestarting
+        expr: rate(container_last_seen[5m]) == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} is restarting"
+          description: "Container {{ $labels.name }} has not been seen for 2 minutes"
+
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumergroup_lag > 5000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Kafka consumer lag on {{ $labels.topic }}"
+          description: "Consumer group {{ $labels.consumer_group }} lag is {{ $value }} on topic {{ $labels.topic }}"
+
+      - alert: DLQDepthHigh
+        expr: delta(kafka_topic_partition_current_offset{topic=~".*\\.dlq"}[10m]) > 100
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ {{ $labels.topic }} depth increasing"
+          description: "DLQ {{ $labels.topic }} has accumulated {{ $value }} messages in 10m"
+
+      - alert: StuckJobs
+        expr: mongo_jobs_stuck_count > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} jobs stuck in pipeline"
+          description: "More than 50 jobs have not advanced status for >30 minutes"
+
+      - alert: ServiceUnhealthy
+        expr: probe_success{job="gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway service is unhealthy"
+          description: "Gateway /health has not returned success for 2 minutes"

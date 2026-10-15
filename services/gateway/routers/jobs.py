@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,40 @@ from shared.utils.url import normalize_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+JOB_LIST_PROJECTION = {
+    "_id": 1,
+    "id": 1,
+    "title": 1,
+    "description": 1,
+    "company_id": 1,
+    "company_name": 1,
+    "location_city": 1,
+    "location_state": 1,
+    "location_country": 1,
+    "location_raw": 1,
+    "remote_type": 1,
+    "job_type": 1,
+    "experience_level": 1,
+    "salary_min": 1,
+    "salary_max": 1,
+    "required_skills": 1,
+    "tech_stack": 1,
+    "posted_at": 1,
+    "apply_url": 1,
+    "source_url": 1,
+    "source": 1,
+    "status": 1,
+    "scam_probability": 1,
+    "trust_score": 1,
+    "trust_reasons": 1,
+    "warning_signals": 1,
+    "is_url_reachable": 1,
+    "is_verified": 1,
+    "quality_score": 1,
+}
+
+COMPANY_PROJECTION = {"_id": 1, "logo_url": 1, "name": 1}
 
 
 async def trigger_search_collection(q: str, location: str | None = None) -> None:
@@ -57,6 +92,7 @@ async def list_jobs(
     company: str | None = Query(None, description="Company name filter"),
     min_trust_score: float = Query(30.0, description="Minimum company trust score"),
     max_scam_risk: str = Query("medium", description="Maximum scam risk level"),
+    verified_only: bool = Query(False, description="Filter to verified companies only"),
     posted_within_days: int | None = Query(None, description="Jobs posted within N days"),
     status_filter: str = Query("published", description="Job status filter"),
     page: int = Query(1, ge=1),
@@ -74,18 +110,20 @@ async def list_jobs(
 
     if q:
         background_tasks.add_task(trigger_search_collection, q, location)
+        escaped_q = _escape_regex(q)
         filters["$or"] = [
-            {"title": {"$regex": q, "$options": "i"}},
-            {"description": {"$regex": q, "$options": "i"}},
-            {"company_name": {"$regex": q, "$options": "i"}},
+            {"title": {"$regex": escaped_q, "$options": "i"}},
+            {"description": {"$regex": escaped_q, "$options": "i"}},
+            {"company_name": {"$regex": escaped_q, "$options": "i"}},
         ]
 
     if location:
+        escaped_loc = _escape_regex(location)
         filters["$or"] = filters.get("$or", []) + [
-            {"location_city": {"$regex": location, "$options": "i"}},
-            {"location_state": {"$regex": location, "$options": "i"}},
-            {"location_country": {"$regex": location, "$options": "i"}},
-            {"location_raw": {"$regex": location, "$options": "i"}},
+            {"location_city": {"$regex": escaped_loc, "$options": "i"}},
+            {"location_state": {"$regex": escaped_loc, "$options": "i"}},
+            {"location_country": {"$regex": escaped_loc, "$options": "i"}},
+            {"location_raw": {"$regex": escaped_loc, "$options": "i"}},
         ]
 
     if remote:
@@ -95,11 +133,23 @@ async def list_jobs(
     if experience:
         filters["experience_level"] = experience
     if salary_min is not None:
-        filters["salary_max"] = {"$gte": salary_min}
+        filters["$and"] = filters.get("$and", []) + [
+            {"$or": [
+                {"salary_max": {"$gte": salary_min}},
+                {"salary_max": {"$exists": False}},
+                {"salary_max": None},
+            ]}
+        ]
     if salary_max is not None:
-        filters["salary_min"] = {"$lte": salary_max}
+        filters["$and"] = filters.get("$and", []) + [
+            {"$or": [
+                {"salary_min": {"$lte": salary_max}},
+                {"salary_min": {"$exists": False}},
+                {"salary_min": None},
+            ]}
+        ]
     if company:
-        filters["company_name"] = {"$regex": company, "$options": "i"}
+        filters["company_name"] = {"$regex": _escape_regex(company), "$options": "i"}
 
     scam_risk_map = {
         "very_low": 0.2, "low": 0.4, "medium": 0.6, "high": 0.8, "very_high": 1.0
@@ -116,24 +166,38 @@ async def list_jobs(
     if posted_within_days:
         cutoff = datetime.now(timezone.utc) - timedelta(days=posted_within_days)
         filters["posted_at"] = {"$gte": cutoff}
-
-    # Count total
-    total = await db.jobs.count_documents(filters)
+    if verified_only:
+        filters["is_verified"] = True
 
     # Sort
     sort_dir = -1 if sort_order == "desc" else 1
     sort_tuple = [(sort_by, sort_dir)]
 
-    # Fetch Jobs
+    # Skip is bounded by page; rely on (status, posted_at) or (status, quality_score) index
     skip = (page - 1) * page_size
-    cursor = db.jobs.find(filters).sort(sort_tuple).skip(skip).limit(page_size)
-    jobs = await cursor.to_list(length=page_size)
 
-    # Fetch Companies
-    company_ids = [j.get("company_id") for j in jobs if j.get("company_id")]
-    companies = []
-    if company_ids:
-        companies = await db.companies.find({"_id": {"$in": company_ids}}).to_list(length=None)
+    # ─── Parallelize: count + find + companies in one round-trip ────────────────
+    count_task = db.jobs.count_documents(filters)
+    cursor = db.jobs.find(filters, JOB_LIST_PROJECTION).sort(sort_tuple).skip(skip).limit(page_size)
+
+    company_ids_placeholder: list[Any] = []
+
+    async def _fetch_jobs() -> list[dict[str, Any]]:
+        jobs_list = await cursor.to_list(length=page_size)
+        company_ids_placeholder.extend(
+            j.get("company_id") for j in jobs_list if j.get("company_id")
+        )
+        return jobs_list
+
+    jobs_task = asyncio.create_task(_fetch_jobs())
+    total, jobs = await asyncio.gather(count_task, jobs_task)
+
+    # Companies lookup (also indexed via companies._id)
+    companies: list[dict[str, Any]] = []
+    if company_ids_placeholder:
+        companies = await db.companies.find(
+            {"_id": {"$in": company_ids_placeholder}}, COMPANY_PROJECTION
+        ).to_list(length=None)
     company_map = {str(c["_id"]): c for c in companies if "_id" in c}
 
     jobs_out = []
@@ -181,6 +245,9 @@ async def list_jobs(
             "posted_at": posted_at.isoformat() if isinstance(posted_at, datetime) else posted_at,
             "apply_url": norm_apply_url,
             "source_url": norm_source_url,
+            "source": job.get("source"),
+            "status": job.get("status"),
+            "scam_probability": job.get("scam_probability"),
             "trust_score": job.get("trust_score") or (company_obj.get("trust_score") if company_obj else 85.0),
             "trust_reasons": job.get("trust_reasons", ["Identified company name", "Valid application URL"]),
             "warning_signals": job.get("warning_signals", []),
@@ -409,3 +476,9 @@ async def trigger_collection(
 def _format_location(job: dict) -> str:
     parts = [p for p in [job.get("location_city"), job.get("location_state"), job.get("location_country")] if p]
     return ", ".join(parts) if parts else job.get("location_raw") or "Unknown"
+
+
+def _escape_regex(value: str) -> str:
+    """Escape user input before embedding into a $regex pattern (ReDoS prevention + correctness)."""
+    import re as _re
+    return _re.escape(value)

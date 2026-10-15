@@ -26,7 +26,10 @@ logger = logging.getLogger(__name__)
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 DEFAULT_BATCH_SIZE = int(os.getenv("KAFKA_PRODUCER_BATCH_SIZE", "500"))
 DEFAULT_LINGER_MS = int(os.getenv("KAFKA_PRODUCER_LINGER_MS", "20"))
-SEND_BATCH_CONCURRENCY = int(os.getenv("KAFKA_SEND_CONCURRENCY", "50"))
+SEND_BATCH_CONCURRENCY = int(os.getenv("KAFKA_SEND_CONCURRENCY", "20"))
+# Per-message flush timeout in send_batch (seconds). Raised from 20s to 60s
+# to avoid spurious DLQ writes under concurrent load with acks="all".
+SEND_BATCH_TIMEOUT_S = float(os.getenv("KAFKA_SEND_TIMEOUT_S", "60"))
 
 
 def _get_compression_type() -> str | None:
@@ -197,7 +200,7 @@ class KafkaProducerClient:
                     # Fire & forget but await the Future (we want flush)
                     fut = await self._producer.send(topic, value=payload, key=key)
                     try:
-                        await asyncio.wait_for(fut, timeout=20.0)
+                        await asyncio.wait_for(fut, timeout=SEND_BATCH_TIMEOUT_S)
                         successes += 1
                     except asyncio.TimeoutError:
                         failures.append((payload, key, "publish_timeout"))
